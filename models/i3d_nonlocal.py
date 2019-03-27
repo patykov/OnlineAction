@@ -327,7 +327,6 @@ def copy_weigths_i3dResNet(weigths_file_path, new_model, save_model=False, new_m
     return new_model
 
 
-
 if __name__ == '__main__':
     pre_trained_file = ("/media/v-pakova/New Volume/OnlineActionRecognition/models/pre-trained/"
                         "non-local/i3d_nonlocal_32x2_IN_pretrain_400k.pkl")

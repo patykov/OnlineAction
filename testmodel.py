@@ -14,26 +14,21 @@ from models.i3d_nonlocal import *
 # options
 parser = argparse.ArgumentParser(
     description="Standard video-level testing")
-parser.add_argument('test_list', type=str)
+parser.add_argument('--test_list', type=str)
 # parser.add_argument('weights', type=str)
 parser.add_argument('--root_data_path', type=str, default=("/media/v-pakova/New Volume/"
-                    "OnlineActionRecognition/datasets/Kinetics-NonLocal/val"))
+                    "Datasets/Kinetics/400/val_frames_256"))
 parser.add_argument('--base_model', type=str, default="resnet50")
-parser.add_argument('--scores_path', type=str, default=None)
+parser.add_argument('--output_file', type=str, default=None)
 parser.add_argument('--test_clips', type=int, default=10)
 parser.add_argument('--sample_frames', type=int, default=32)
 parser.add_argument('--test_crops', type=int, default=1)
-parser.add_argument('--input_size', type=int, default=224)
-parser.add_argument('--k', type=int, default=3)
-parser.add_argument('--dropout', type=float, default=0.5)
-parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
+parser.add_argument('--workers', default=4, type=int,
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--gpus', nargs='+', type=int, default=None)
 
 args = parser.parse_args()
 
 num_class = 400
-workers = min(args.workers, torch.cuda.device_count())
 
 # i3d_model = I3DResNet(num_class, args.sample_frames, base_model=args.base_model,
 # # dropout=args.dropout)
@@ -42,13 +37,14 @@ workers = min(args.workers, torch.cuda.device_count())
 # blank_resnet_i3d = i3d.resnet50()
 # i3d_model = i3d.copy_weigths_i3dResNet(pre_trained_file, blank_resnet_i3d)
 i3d_model = torch.load('/media/v-pakova/New Volume/OnlineActionRecognition/models/'
-                       'resnet50_i3d_pre_trained.pt')
+                       'pre-trained/resnet50_i3d_pre_trained.pt')
 
-# checkpoint = torch.load(args.weights)
-# print("model epoch {} best prec@1: {}".format(checkpoint['epoch'], checkpoint['best_prec1']))
-
-# base_dict = {'.'.join(k.split('.')[1:]): v for k, v in list(checkpoint['state_dict'].items())}
-# i3d_model.load_state_dict(base_dict)
+device = torch.device("cuda:0")
+if torch.cuda.device_count() > 1:
+    print("Let's use", torch.cuda.device_count(), "GPUs!")
+i3d_model = torch.nn.DataParallel(i3d_model)
+i3d_model.to(device)
+# i3d_model.eval()
 
 cropping = torchvision.transforms.Compose([
     tf.GroupResize(256),
@@ -66,13 +62,11 @@ data_loader = torch.utils.data.DataLoader(
                        cropping,
                        tf.Stack(),
                        tf.ToTorchFormatTensor(),
-                    #  tf.GroupNormalize(input_mean, input_std),
+                       #  tf.GroupNormalize(input_mean, input_std),
                     ])),
-        batch_size=1, shuffle=False,
-        num_workers=workers * 2, pin_memory=True)
+        batch_size=1, shuffle=False, pin_memory=True, num_workers=args.workers * 2)
 
 data_gen = enumerate(data_loader)
-
 total_num = len(data_loader.dataset)
 
 num_channel = 3
@@ -83,14 +77,15 @@ def eval_video(data):
     data = data.squeeze(0)
     data = data.view(num_channel, -1, num_depth, data.size(2), data.size(3)).contiguous()
     data = data.permute(1, 0, 2, 3, 4).contiguous()
-    input_var = torch.Tensor(data).cuda()
+
+    input_var = torch.Tensor(data).to(device)
     rst = i3d_model(input_var).data.cpu().numpy().copy()
     return rst.reshape((args.test_clips*args.test_crops, num_class)).mean(axis=0).reshape(
         (1, num_class))
 
 
-if args.scores_path is not None:
-    with open(args.scores_path+'.txt', 'w') as file:
+if args.output_file is not None:
+    with open(args.output_file, 'w') as file:
         file.write('{:^10} | {:^10}\n'.format('Label', 'Prediction'))
 
 proc_start_time = time.time()
@@ -108,15 +103,21 @@ with torch.no_grad():
         video_labels.append(label[0])
         score_text += '{:^10} | {:^10}\n'.format(label[0], prediction)
 
-        if i % 100 == 0:
+        if i % 10 == 0:
             print('video {} done, total {}/{}, average {:.5f} sec/video'.format(
                 i, i+1, total_num, float(cnt_time) / (i+1)))
+            if i % 100 == 0:
+                # Saving as the program goes in case of error
+                if args.output_file is not None:
+                    with open(args.output_file, 'a') as file:
+                        file.write(score_text)
+                score_text = ''
 
-            if args.scores_path is not None:
-                with open(args.scores_path+'.txt', 'a') as file:
-                    file.write(score_text)
-            score_text_text = ''
-
+# Saving last < 100 lines
+if args.output_file is not None:
+    with open(args.output_file, 'a') as file:
+        for l, p in zip(video_labels, video_pred):
+            file.write(score_text)
 
 cf = confusion_matrix(video_labels, video_pred).astype(float)
 
@@ -126,10 +127,3 @@ cls_hit = np.diag(cf)
 cls_acc = [h/c if c > 0 else 0.00 for (h, c) in zip(cls_hit, cls_cnt)]
 
 print('\n\nAccuracy {:.02f}%'.format(np.mean(cls_acc) * 100))
-
-if args.scores_path is not None:
-    # np.savez(args.scores_path, scores=video_pred, labels=video_labels)
-    with open(args.scores_path+'.txt', 'w') as file:
-        file.write('{:^10} | {:^10}\n'.format('Label', 'Prediction'))
-        for l, p in zip(video_labels, video_pred):
-            file.write('{:^10} | {:^10}\n'.format(l, p))
