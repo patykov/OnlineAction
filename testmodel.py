@@ -64,7 +64,7 @@ data_loader = torch.utils.data.DataLoader(
                        tf.ToTorchFormatTensor(),
                        #  tf.GroupNormalize(input_mean, input_std),
                     ])),
-        batch_size=1, shuffle=False, pin_memory=True, num_workers=args.workers * 2)
+        batch_size=1, shuffle=False, pin_memory=True, num_workers=0)  # args.workers * 2)
 
 data_gen = enumerate(data_loader)
 total_num = len(data_loader.dataset)
@@ -81,12 +81,12 @@ def eval_video(data):
     input_var = torch.Tensor(data).to(device)
     rst = i3d_model(input_var).data.cpu().numpy().copy()
     return rst.reshape((args.test_clips*args.test_crops, num_class)).mean(axis=0).reshape(
-        (1, num_class))
+        (1, num_class))[0]
 
 
 if args.output_file is not None:
     with open(args.output_file, 'w') as file:
-        file.write('{:^10} | {:^10}\n'.format('Label', 'Prediction'))
+        file.write('{:^10} | {:^20}\n'.format('Label', 'Top5 predition'))
 
 proc_start_time = time.time()
 
@@ -98,20 +98,22 @@ with torch.no_grad():
         rst = eval_video(data)
         cnt_time = time.time() - proc_start_time
 
-        prediction = np.argmax(rst)
-        video_pred.append(prediction)
+        top5_pred = rst.argsort()[-5:][::-1]
+        top1_pred = top5_pred[0]
+        video_pred.append(top1_pred)
         video_labels.append(label[0])
-        score_text += '{:^10} | {:^10}\n'.format(label[0], prediction)
+        score_text += '{:^10} | {:^20}\n'.format(label[0], np.array2string(
+            top5_pred, separator=', ')[1:-1])
 
         if i % 10 == 0:
-            print('video {} done, total {}/{}, average {:.5f} sec/video'.format(
-                i, i+1, total_num, float(cnt_time) / (i+1)))
-            if i % 100 == 0:
-                # Saving as the program goes in case of error
-                if args.output_file is not None:
-                    with open(args.output_file, 'a') as file:
-                        file.write(score_text)
-                score_text = ''
+            print('video {}/{} done, {:.02f}%, average {:.5f} sec/video'.format(
+                i+1, total_num, (i+1)*100/total_num, float(cnt_time) / (i+1)))
+            # if i % 100 == 0:
+            # Saving as the program goes in case of error
+            if args.output_file is not None:
+                with open(args.output_file, 'a') as file:
+                    file.write(score_text)
+            score_text = ''
 
 # Saving last < 100 lines
 if args.output_file is not None:
