@@ -1,6 +1,7 @@
 import os
 import os.path
 
+import jpeg4py as jpeg
 import numpy as np
 import torch.utils.data as data
 from numpy.random import randint
@@ -27,7 +28,7 @@ class VideoRecord(object):
 class I3DDataSet(data.Dataset):
     def __init__(self, root_path, list_file, sample_frames=32,
                  image_tmpl='frame_{:06d}.jpg', transform=None,
-                 force_grayscale=False, train_mode=True, test_clips=10):
+                 force_grayscale=False, train_mode=True, test_clips=10, chunk_set=None):
         self.root_path = root_path
         self.list_file = list_file
         self.sample_frames = sample_frames
@@ -37,18 +38,21 @@ class I3DDataSet(data.Dataset):
         if not self.train_mode:
             self.num_clips = test_clips
 
-        self._parse_list()
+        self._parse_list(chunk_set)
 
     def _load_image(self, video_dir, idx):
         img_path = os.path.join(self.root_path, video_dir, self.image_tmpl.format(idx))
         try:
-            return [Image.open(img_path).convert('RGB')]
+            # Loading images with PIL is much slower!!
+            return [Image.fromarray(jpeg.JPEG(img_path).decode())]
         except IOError:
             print("Couldn't load image:{}".format(img_path))
             return None
 
-    def _parse_list(self):
+    def _parse_list(self, chunk_set):
         self.video_list = [VideoRecord(x.strip().split(' ')) for x in open(self.list_file)]
+        if chunk_set is not None:
+            self.video_list = self.video_list[chunk_set[0]:chunk_set[1]]
 
     def _sample_indices(self, record):
         """

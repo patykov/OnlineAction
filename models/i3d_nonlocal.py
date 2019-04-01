@@ -194,11 +194,11 @@ class _NonLocalBlockND(nn.Module):
             self.operation_function = self._embedded_gaussian
 
         if sub_sample:
-            self.g = nn.Sequential(self.g, nn.MaxPool3d(kernel_size=2))
+            self.g = nn.Sequential(self.g, nn.MaxPool3d(kernel_size=(1, 2, 2)))
             if self.phi is None:
                 self.phi = nn.MaxPool3d(kernel_size=2)
             else:
-                self.phi = nn.Sequential(self.phi, nn.MaxPool3d(kernel_size=2))
+                self.phi = nn.Sequential(self.phi, nn.MaxPool3d(kernel_size=(1, 2, 2)))
 
     def forward(self, x):
         '''
