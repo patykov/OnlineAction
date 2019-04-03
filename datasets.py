@@ -7,6 +7,8 @@ import torch.utils.data as data
 from numpy.random import randint
 from PIL import Image
 
+import transforms as t
+
 
 class VideoRecord(object):
     def __init__(self, row):
@@ -33,10 +35,14 @@ class I3DDataSet(data.Dataset):
         self.list_file = list_file
         self.sample_frames = sample_frames
         self.image_tmpl = image_tmpl
-        self.transform = transform
         self.train_mode = train_mode
         if not self.train_mode:
             self.num_clips = test_clips
+
+        if train_mode is not None:
+            self.transform = transform
+        else:
+            self.transform = t.GroupToTensorStack()
 
         self._parse_list(chunk_set)
 
@@ -120,8 +126,8 @@ class I3DDataSet(data.Dataset):
             uniq_imgs[ind] = seg_img
 
         images = [uniq_imgs[i][0] for i in indices]
-        process_data = self.transform(images)
-        return process_data, record.label
+        images = self.transform(images)
+        return images, record.label
 
     def __len__(self):
         return len(self.video_list)

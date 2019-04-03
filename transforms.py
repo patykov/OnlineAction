@@ -1,7 +1,5 @@
-import numbers
 import random
 
-import numpy as np
 import torch
 import torchvision
 from PIL import Image
@@ -9,10 +7,7 @@ from PIL import Image
 
 class GroupRandomCrop(object):
     def __init__(self, size):
-        if isinstance(size, numbers.Number):
-            self.size = (int(size), int(size))
-        else:
-            self.size = size
+        self.size = size
 
     def __call__(self, img_group):
 
@@ -25,7 +20,7 @@ class GroupRandomCrop(object):
         y1 = random.randint(0, h - th)
 
         for img in img_group:
-            assert(img.size[0] == w and img.size[1] == h)
+            assert(img.size == w and img.size == h)
             if w == tw and h == th:
                 out_images.append(img)
             else:
@@ -35,6 +30,7 @@ class GroupRandomCrop(object):
 
 
 class GroupCenterCrop(object):
+
     def __init__(self, size):
         self.worker = torchvision.transforms.CenterCrop(size)
 
@@ -43,8 +39,7 @@ class GroupCenterCrop(object):
 
 
 class GroupRandomHorizontalFlip(object):
-    """Randomly horizontally flips the given PIL.Image with a probability of 0.5
-    """
+
     def __call__(self, img_group, is_flow=False):
         v = random.random()
         if v < 0.5:
@@ -71,13 +66,6 @@ class GroupNormalize(object):
 
 
 class GroupResize(object):
-    """ Resizes the input PIL.Image to the given 'size'.
-    'size' will be the size of the smaller edge.
-    For example, if height > width, then image will be
-    resized to (size * height / width, size)
-    size: size of the smaller edge
-    interpolation: Default: PIL.Image.BILINEAR
-    """
 
     def __init__(self, size, interpolation=Image.BILINEAR):
         self.worker = torchvision.transforms.Resize(size, interpolation)
@@ -86,38 +74,7 @@ class GroupResize(object):
         return [self.worker(img) for img in img_group]
 
 
-class Stack(object):
+class GroupToTensorStack(object):
 
     def __call__(self, img_group):
-        stacked_group = np.concatenate([np.expand_dims(x, 3) for x in img_group], axis=3)
-
-        return stacked_group
-
-
-class ToTorchFormatTensor(object):
-    """ Converts a PIL.Image (RGB) or numpy.ndarray (H x W x C x D) in the range [0, 255]
-    to a torch.FloatTensor of shape (C x D x H x W) in the range [0.0, 1.0] """
-
-    def __call__(self, img):
-        # handle numpy array
-        img = torch.from_numpy(img).permute(2, 3, 0, 1).contiguous()
-
-        return img.float().div(255)
-
-
-if __name__ == "__main__":
-    trans = torchvision.transforms.Compose([
-        GroupResize(256),
-        GroupRandomCrop(224),
-        Stack(),
-        ToTorchFormatTensor(),
-        GroupNormalize(
-            mean=[.485, .456, .406],
-            std=[.229, .224, .225]
-        )]
-    )
-
-    im = Image.open('../tensorflow-model-zoo.torch/lena_299.png')
-
-    color_group = [im] * 3
-    rst = trans(color_group)
+        return torch.stack([torchvision.transforms.ToTensor()(img) for img in img_group], dim=1)
