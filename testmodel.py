@@ -28,7 +28,7 @@ parser.add_argument('--workers', default=6, type=int,
 
 args = parser.parse_args()
 
-# torch.multiprocessing.set_sharing_strategy('file_system')
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 num_class = 400
 

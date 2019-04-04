@@ -40,7 +40,7 @@ def extract_frames(dataDir, outputDir):
 
 
 def create_labels_file(dir_path, output_path):
-    classes = os.listdir(dir_path)
+    classes = sorted(os.listdir(dir_path))
     new_file = os.path.join(output_path, 'classes.txt')
     with open(new_file, 'w') as file:
         for i, c in enumerate(classes):
@@ -58,18 +58,15 @@ def load_labels_file(file_path):
 
 
 def create_videos_list(dir_path, file_path, classes_file):
-    file = open(file_path, 'w')
-    classes_ids = load_labels_file(classes_file)
-    classes = os.listdir(dir_path)
-
-    for c in classes:
-        class_path = os.path.join(dir_path, c)
-        c_id = classes_ids[c]
+    classes = load_labels_file(classes_file)
+    files_text = ''
+    for c_name, c_id in classes.items():
+        class_path = os.path.join(dir_path, c_name)
         videos = os.listdir(class_path)
-        files_text = ''.join(['{} {} {}\n'.format(
+        files_text += ''.join(['{} {} {}\n'.format(
             c_id,
-            os.path.join(c, v),
+            os.path.join(c_name, v),
             len(os.listdir(os.path.join(class_path, v)))) for v in videos])
-        file.write(files_text)
 
-    file.close()
+    with open(file_path, 'w') as file:
+        file.write(files_text)
