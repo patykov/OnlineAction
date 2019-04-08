@@ -114,8 +114,7 @@ with torch.no_grad():
 # Saving last < 100 lines
 if args.output_file is not None:
     with open(args.output_file, 'a') as file:
-        for l, p in zip(video_labels, video_pred):
-            file.write(score_text)
+        file.write(score_text)
 
 cf = confusion_matrix(video_labels, video_pred).astype(float)
 
