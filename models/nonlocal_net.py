@@ -1,6 +1,7 @@
 import pickle
 import re
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -9,8 +10,8 @@ from torch.nn import functional as F
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, time_kernel=1, space_stride=1,
-                 downsample=None, addnon=False):
+    def __init__(self, inplanes, planes, time_kernel=1, space_stride=1, downsample=None,
+                 addnon=False):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv3d(inplanes,
                                planes,
@@ -62,7 +63,7 @@ class Bottleneck(nn.Module):
 
 class I3DResNet(nn.Module):
 
-    def __init__(self, block, layers, frame_num=32, num_classes=400):
+    def __init__(self, block, layers, frame_num=32, num_classes=400, is_train=True):
         if torch.cuda.is_available():
             torch.set_default_tensor_type('torch.cuda.FloatTensor')
         self.inplanes = 64
@@ -83,6 +84,7 @@ class I3DResNet(nn.Module):
         self.avgpool = nn.AvgPool3d((int(frame_num/8), 7, 7))
         self.avgdrop = nn.Dropout(0.5)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
+        self.is_train = is_train
 
     def _make_layer_inflat(self, block, planes, blocks, space_stride=1, first_block=False):
         downsample = None
@@ -123,6 +125,16 @@ class I3DResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
+    def set_test(self):
+        """ Transform the last fc layer in a conv1x1 layer """
+        fc_weights = self.fc.state_dict()["weight"]
+        conv1x1 = nn.Conv2d(fc_weights.size(1), fc_weights.size(0), 1)
+        conv1x1.state_dict()["weight"].data = fc_weights.view(fc_weights.size(1),
+                                                              fc_weights.size(0), 1, 1)
+        self.conv1x1 = conv1x1
+        self.avgpool2d = nn.AvgPool2d((1, 2))
+        self.is_train = False
+
     def forward(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
@@ -134,10 +146,15 @@ class I3DResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
         x = self.avgpool(x)
-        x = x.permute(0, 2, 1, 3, 4).contiguous()
-        x = x.view(x.size(0), -1)
-        x = self.avgdrop(x)
-        x = self.fc(x)
+        if self.is_train:
+            x = x.view(x.size(0), -1)
+            x = self.avgdrop(x)
+            x = self.fc(x)
+        else:
+            x = x.view(x.size(0), x.size(1), -1, x.size(4))
+            x = self.conv1x1(x)
+            x = self.avgpool2d(x)
+            x = x.view(x.size(0), -1)
 
         return x
 
@@ -182,9 +199,6 @@ class _NonLocalBlockND(nn.Module):
             nn.init.kaiming_normal(self.W.weight)
             nn.init.constant(self.W.bias, 0)
 
-        self.theta = None
-        self.phi = None
-
         self.theta = nn.Conv3d(in_channels=self.in_channels, out_channels=self.inter_channels,
                                kernel_size=1, stride=1, padding=0)
         self.phi = nn.Conv3d(in_channels=self.in_channels, out_channels=self.inter_channels,
@@ -192,13 +206,12 @@ class _NonLocalBlockND(nn.Module):
 
         if self.mode == "embedded_gaussian":
             self.operation_function = self._embedded_gaussian
+        else:
+            raise NotImplementedError('Non-local mode: {} not implemented!'.format(self.mode))
 
         if sub_sample:
             self.g = nn.Sequential(self.g, nn.MaxPool3d(kernel_size=(1, 2, 2)))
-            if self.phi is None:
-                self.phi = nn.MaxPool3d(kernel_size=2)
-            else:
-                self.phi = nn.Sequential(self.phi, nn.MaxPool3d(kernel_size=(1, 2, 2)))
+            self.phi = nn.Sequential(self.phi, nn.MaxPool3d(kernel_size=(1, 2, 2)))
 
     def forward(self, x):
         '''
@@ -265,6 +278,13 @@ def copy_weigths_i3dResNet(weigths_file_path, new_model, save_model=False, new_m
                         ('momentum' not in k) and ('bn_rm' not in k) and ('bn_riv' not in k)
                         and ('lr' not in k) and ('model_iter' not in k)}
 
+    # Absorb std to conv1
+    data_std = [0.225, 0.225, 0.225]
+    w = pretrained_data2['conv1_w']
+    for i in range(3):
+        w[:, i, :, :, :] /= (data_std[i] * 255)
+    assert(np.array_equal(pretrained_data2['conv1_w'], w))
+
     pretrained_data_list = sorted(pretrained_data2.items())
 
     # Renaming layers
@@ -322,7 +342,7 @@ def copy_weigths_i3dResNet(weigths_file_path, new_model, save_model=False, new_m
 
     if save_model:
         # Saving new model
-        torch.save(new_model, '{}.pt'.format(new_model_name))
+        torch.save(new_model.state_dict(), '{}.pt'.format(new_model_name))
 
     return new_model
 
@@ -331,7 +351,8 @@ if __name__ == '__main__':
     pre_trained_file = ("/media/v-pakova/New Volume/OnlineActionRecognition/models/pre-trained/"
                         "non-local/i3d_nonlocal_32x2_IN_pretrain_400k.pkl")
     blank_resnet_i3d = resnet50()
-    resnet_i3d = copy_weigths_i3dResNet(pre_trained_file, blank_resnet_i3d,
-                                        save_model=True, new_model_name='testing_resnet50_i3d')
+    resnet_i3d = copy_weigths_i3dResNet(pre_trained_file, blank_resnet_i3d, save_model=True,
+                                        new_model_name="../../../models/pre-trained/"
+                                                       "resnet50_i3d_kinetics")
 
     print(resnet_i3d)

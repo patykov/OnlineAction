@@ -1,5 +1,4 @@
 import os
-import os.path
 
 import jpeg4py as jpeg
 import numpy as np
@@ -30,7 +29,7 @@ class VideoRecord(object):
 class I3DDataSet(data.Dataset):
     def __init__(self, root_path, list_file, sample_frames=32,
                  image_tmpl='frame_{:06d}.jpg', transform=None,
-                 force_grayscale=False, train_mode=True, test_clips=10, chunk_set=None):
+                 force_grayscale=False, train_mode=True, test_clips=10):
         self.root_path = root_path
         self.list_file = list_file
         self.sample_frames = sample_frames
@@ -44,21 +43,19 @@ class I3DDataSet(data.Dataset):
         else:
             self.transform = t.GroupToTensorStack()
 
-        self._parse_list(chunk_set)
+        self._parse_list()
 
     def _load_image(self, video_dir, idx):
         img_path = os.path.join(self.root_path, video_dir, self.image_tmpl.format(idx))
         try:
-            # Loading images with PIL is much slower!!
-            return [Image.fromarray(jpeg.JPEG(img_path).decode())]
+            # Loading images with PIL is slower.
+            return [Image.fromarray(jpeg.JPEG(img_path).decode()).convert('RGB')]
         except IOError:
             print("Couldn't load image:{}".format(img_path))
             return None
 
-    def _parse_list(self, chunk_set):
+    def _parse_list(self):
         self.video_list = [VideoRecord(x.strip().split(' ')) for x in open(self.list_file)]
-        if chunk_set is not None:
-            self.video_list = self.video_list[chunk_set[0]:chunk_set[1]]
 
     def _sample_indices(self, record):
         """
@@ -83,7 +80,7 @@ class I3DDataSet(data.Dataset):
 
     def _get_test_indices(self, record):
         tick = (record.num_frames - self.sample_frames*2 + 1) / float(self.num_clips)
-        sample_start_pos = np.array([int(tick / 2.0 + tick * x) for x in range(self.num_clips)])
+        sample_start_pos = np.array([int(tick * x) for x in range(self.num_clips)])
         offsets = []
         for p in sample_start_pos:
             offsets.extend(range(p, p+self.sample_frames*2, 2))
@@ -91,8 +88,8 @@ class I3DDataSet(data.Dataset):
         checked_offsets = []
         for f in offsets:
             new_f = int(f)
-            if new_f < 1:
-                new_f = 1
+            if new_f < 0:
+                new_f = 0
             elif new_f >= record.num_frames:
                 new_f = record.num_frames - 1
             checked_offsets.append(new_f)

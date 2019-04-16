@@ -38,6 +38,18 @@ class GroupCenterCrop(object):
         return [self.worker(img) for img in img_group]
 
 
+class GroupTenCrop(object):
+
+    def __init__(self, size):
+        self.worker = torchvision.transforms.TenCrop(size)
+
+    def __call__(self, img_group):
+        cropped_imgs = [self.worker(img) for img in img_group]
+        reordered_imgs = [[group[i] for group in cropped_imgs] for i in range(10)]
+        new_img_group = [img for sublist in reordered_imgs for img in sublist]
+        return new_img_group
+
+
 class GroupRandomHorizontalFlip(object):
 
     def __call__(self, img_group, is_flow=False):
@@ -50,16 +62,12 @@ class GroupRandomHorizontalFlip(object):
 
 
 class GroupNormalize(object):
-    def __init__(self, mean, std):
-        self.mean = mean
-        self.std = std
+    def __init__(self, mean=None, std=None, num_channels=3):
+        self.mean = mean if mean is not None else [0] * num_channels
+        self.std = std if std is not None else [1] * num_channels
 
     def __call__(self, tensor):
-        rep_mean = self.mean * (tensor.size()[0]//len(self.mean))
-        rep_std = self.std * (tensor.size()[0]//len(self.std))
-
-        # TODO: make efficient
-        for t, m, s in zip(tensor, rep_mean, rep_std):
+        for t, m, s in zip(tensor, self.mean, self.std):
             t.sub_(m).div_(s)
 
         return tensor
@@ -77,4 +85,5 @@ class GroupResize(object):
 class GroupToTensorStack(object):
 
     def __call__(self, img_group):
-        return torch.stack([torchvision.transforms.ToTensor()(img) for img in img_group], dim=1)
+        return 255 * torch.stack(
+            [torchvision.transforms.ToTensor()(img) for img in img_group], dim=1)
