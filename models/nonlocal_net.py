@@ -41,21 +41,31 @@ class Bottleneck(nn.Module):
         residual = x
 
         out = self.conv1(x)
+        # print('bottlenec: conv1', out.size())
         out = self.bn1(out)
+        # print('bottlenec: bn1', out.size())
         out = self.relu(out)
+        # print('bottlenec: relu1', out.size())
 
         out = self.conv2(out)
+        # print('bottlenec: conv2', out.size())
         out = self.bn2(out)
+        # print('bottlenec: bn2', out.size())
         out = self.relu(out)
+        # print('bottlenec: relu2', out.size())
 
         out = self.conv3(out)
+        # print('bottlenec: conv3', out.size())
         out = self.bn3(out)
+        # print('bottlenec: bn3', out.size())
 
         if self.downsample is not None:
             residual = self.downsample(x)
+            # print('bottlenec: downsample', residual.size())
 
         out += residual
         out = self.relu(out)
+        # print('bottlenec: relu3', out.size())
         if self.addnon:
             out = self.nonlocal_block(out)
         return out
@@ -63,7 +73,7 @@ class Bottleneck(nn.Module):
 
 class I3DResNet(nn.Module):
 
-    def __init__(self, block, layers, frame_num=32, num_classes=400, is_train=True):
+    def __init__(self, block, layers, frame_num=32, num_classes=400):
         if torch.cuda.is_available():
             torch.set_default_tensor_type('torch.cuda.FloatTensor')
         self.inplanes = 64
@@ -75,7 +85,7 @@ class I3DResNet(nn.Module):
                                bias=False)
         self.bn1 = nn.BatchNorm3d(64)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool3d(kernel_size=(3, 3, 3), stride=(2, 2, 2), padding=(1, 1, 1))
+        self.maxpool = nn.MaxPool3d(kernel_size=(2, 3, 3), stride=2)
         self.layer1 = self._make_layer_inflat(block, 64, layers[0], first_block=True)
         self.temporalpool = nn.MaxPool3d(kernel_size=(3, 1, 1), stride=(2, 1, 1), padding=(1, 0, 0))
         self.layer2 = self._make_layer_inflat(block, 128, layers[1], space_stride=2)
@@ -84,7 +94,7 @@ class I3DResNet(nn.Module):
         self.avgpool = nn.AvgPool3d((int(frame_num/8), 7, 7))
         self.avgdrop = nn.Dropout(0.5)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
-        self.is_train = is_train
+        self.is_train = True
 
     def _make_layer_inflat(self, block, planes, blocks, space_stride=1, first_block=False):
         downsample = None
@@ -128,33 +138,55 @@ class I3DResNet(nn.Module):
     def set_test(self):
         """ Transform the last fc layer in a conv1x1 layer """
         fc_weights = self.fc.state_dict()["weight"]
-        conv1x1 = nn.Conv2d(fc_weights.size(1), fc_weights.size(0), 1)
+        conv1x1 = nn.Conv3d(fc_weights.size(1), fc_weights.size(0), 1)
         conv1x1.state_dict()["weight"].data = fc_weights.view(fc_weights.size(1),
                                                               fc_weights.size(0), 1, 1)
         self.conv1x1 = conv1x1
-        self.avgpool2d = nn.AvgPool2d((1, 2))
+        # self.avgpool2 = nn.AvgPool3d(1)
         self.is_train = False
 
     def forward(self, x):
+        # print(x.size())
         x = self.conv1(x)
+        # print('conv1', x.size())
         x = self.bn1(x)
+        # print('bn1', x.size())
         x = self.relu(x)
+        # print('relu1', x.size())
         x = self.maxpool(x)
+        # print('maxpool', x.size())
         x = self.layer1(x)
+        # print('layers1', x.size())
         x = self.temporalpool(x)
+        # print('tempool', x.size())
         x = self.layer2(x)
+        # print('layer2', x.size())
         x = self.layer3(x)
+        # print('layer3', x.size())
         x = self.layer4(x)
+        # print('layer4', x.size())
         x = self.avgpool(x)
+        # print('avgpool', x.size())
         if self.is_train:
             x = x.view(x.size(0), -1)
             x = self.avgdrop(x)
+            # print('avgdrop', x.size())
             x = self.fc(x)
+            # print('---end---')
         else:
-            x = x.view(x.size(0), x.size(1), -1, x.size(4))
             x = self.conv1x1(x)
-            x = self.avgpool2d(x)
-            x = x.view(x.size(0), -1)
+            # print('conv1', x.size())
+            x = x.permute(0, 2, 3, 4, 1).contiguous()
+            # print('permute', x.size())
+            # old_shape = x.size()
+            x = x.view(-1, x.size(4))
+            # x = self.softmax(x)
+            # print('softmax', x.size())
+            # x = x.view(old_shape)
+            # print('view', x.size())
+            # x = x.permute(0, 4, 1, 2, 3).contiguous()
+            # print('permute', x.size())
+            # x = x.mean(4).mean(3).mean(2)
 
         return x
 
@@ -179,8 +211,8 @@ class _NonLocalBlockND(nn.Module):
 
         self.g = nn.Conv3d(in_channels=self.in_channels, out_channels=self.inter_channels,
                            kernel_size=1, stride=1, padding=0)
-        nn.init.kaiming_normal_(self.g.weight)
-        nn.init.constant_(self.g.bias, 0)
+        # nn.init.kaiming_normal_(self.g.weight)
+        # nn.init.constant_(self.g.bias, 0)
 
         if bn_layer:
             self.W = nn.Sequential(
@@ -188,16 +220,16 @@ class _NonLocalBlockND(nn.Module):
                           kernel_size=1, stride=1, padding=0),
                 nn.BatchNorm3d(self.in_channels)
             )
-            nn.init.kaiming_normal_(self.W[0].weight)
-            nn.init.constant_(self.W[0].bias, 0)
-            nn.init.constant_(self.W[1].weight, 0)
-            nn.init.constant_(self.W[1].bias, 0)
+            # nn.init.kaiming_normal_(self.W[0].weight)
+            # nn.init.constant_(self.W[0].bias, 0)
+            # nn.init.constant_(self.W[1].weight, 0)
+            # nn.init.constant_(self.W[1].bias, 0)
 
         else:
             self.W = nn.Conv3d(in_channels=self.inter_channels, out_channels=self.in_channels,
                                kernel_size=1, stride=1, padding=0)
-            nn.init.kaiming_normal(self.W.weight)
-            nn.init.constant(self.W.bias, 0)
+            # nn.init.kaiming_normal(self.W.weight)
+            # nn.init.constant(self.W.bias, 0)
 
         self.theta = nn.Conv3d(in_channels=self.in_channels, out_channels=self.inter_channels,
                                kernel_size=1, stride=1, padding=0)
@@ -227,22 +259,33 @@ class _NonLocalBlockND(nn.Module):
 
         # g=>(b, c, t, h, w)->(b, 0.5c, t, h, w)->(b, thw, 0.5c)
         g_x = self.g(x).view(batch_size, self.inter_channels, -1)
+        # print('Bottlenec: Non-local: g:', g_x.size())
         g_x = g_x.permute(0, 2, 1)
+        # print('Bottlenec: Non-local: reshape:', g_x.size())
 
         # theta=>(b, c, t, h, w)[->(b, 0.5c, t, h, w)]->(b, thw, 0.5c)
         # phi  =>(b, c, t, h, w)[->(b, 0.5c, t, h, w)]->(b, 0.5c, thw)
         # f=>(b, thw, 0.5c)dot(b, 0.5c, twh) = (b, thw, thw)
         theta_x = self.theta(x).view(batch_size, self.inter_channels, -1)
+        # print('Bottlenec: Non-local: theta:', theta_x.size())
         theta_x = theta_x.permute(0, 2, 1)
+        # print('Bottlenec: Non-local: reshape:', theta_x.size())
         phi_x = self.phi(x).view(batch_size, self.inter_channels, -1)
+        # print('Bottlenec: Non-local: phi:', phi_x.size())
         f = torch.matmul(theta_x, phi_x)
+        # print('Bottlenec: Non-local: amtmul:', f.size())
         f_div_C = F.softmax(f, dim=-1)
+        # print('Bottlenec: Non-local: softmax:', f_div_C.size())
 
         # (b, thw, thw)dot(b, thw, 0.5c) = (b, thw, 0.5c)->(b, 0.5c, t, h, w)->(b, c, t, h, w)
         y = torch.matmul(f_div_C, g_x)
+        # print('Bottlenec: Non-local: matmul:', y.size())
         y = y.permute(0, 2, 1).contiguous()
+        # print('Bottlenec: Non-local: reshape:', y.size())
         y = y.view(batch_size, self.inter_channels, *x.size()[2:])
+        # print('Bottlenec: Non-local: view:', y.size())
         W_y = self.W(y)
+        # print('Bottlenec: Non-local: W:', W_y.size())
         z = W_y + x
 
         return z
@@ -355,4 +398,4 @@ if __name__ == '__main__':
                                         new_model_name="../../../models/pre-trained/"
                                                        "resnet50_i3d_kinetics")
 
-    print(resnet_i3d)
+    # print(resnet_i3d)
