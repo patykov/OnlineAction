@@ -26,7 +26,7 @@ class VideoRecord(object):
         return int(self._data[2])
 
 
-class I3DDataSet(data.Dataset):
+class VideoDataset(data.Dataset):
     def __init__(self, root_path, list_file, sample_frames=32,
                  image_tmpl='frame_{:06d}.jpg', transform=None,
                  force_grayscale=False, train_mode=True, test_clips=10):

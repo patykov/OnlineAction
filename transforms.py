@@ -38,6 +38,22 @@ class GroupCenterCrop(object):
         return [self.worker(img) for img in img_group]
 
 
+class ConditionedGroupCenterCrop(object):
+
+    def __init__(self, size):
+        self.size = size
+        self.worker = torchvision.transforms.CenterCrop(self.size)
+
+    def __call__(self, img_group):
+        w, h = img_group[0].size
+
+        if (w > self.size) or (h > self.size):
+            print('\nNeed to crop! Image size: {}x{}.\n'.format(w, h))
+            return [self.worker(img) for img in img_group]
+        else:
+            return img_group
+
+
 class GroupTenCrop(object):
 
     def __init__(self, size):
@@ -87,3 +103,31 @@ class GroupToTensorStack(object):
     def __call__(self, img_group):
         return 255 * torch.stack(
             [torchvision.transforms.ToTensor()(img) for img in img_group], dim=1)
+
+
+def get_default_transforms(mode):
+    input_mean = [114.75, 114.75, 114.75]  # [0.485, 0.456, 0.406]  # 114.75 / 255
+    # input_std = [0.229, 0.224, 0.225]  # std is on conv1 = 57.375 / 255
+
+    if mode == 'val':
+        cropping = torchvision.transforms.Compose([
+            GroupResize(256),
+            GroupCenterCrop(224)
+        ])
+    elif mode == 'test':
+        cropping = torchvision.transforms.Compose([
+            GroupResize(256),
+            ConditionedGroupCenterCrop(900)
+        ])
+    elif mode == 'train':
+        raise NotImplementedError('TODO: set train default transforms')
+    else:
+        raise ValueError('Mode {} does not exist. Choose between: val, test or train.'.format(mode))
+
+    transforms = torchvision.transforms.Compose([
+            cropping,
+            GroupToTensorStack(),
+            GroupNormalize(mean=input_mean)
+        ])
+
+    return transforms

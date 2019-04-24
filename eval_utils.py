@@ -6,21 +6,6 @@ import numpy as np
 import torch
 from sklearn.metrics import classification_report, confusion_matrix
 
-# class eval_13d_nl(object):
-#     def __init__(self, model, num_depth=32, num_channel=3):
-#         self.num_channel = num_channel
-#         self.num_depth = num_depth
-#         self.model = model
-
-#     def __call__(self, data):
-#         data = data.to(device)
-#         data = data.squeeze(0)
-#         data = data.view(
-#             self.num_channel, -1, self.num_depth, data.size(2), data.size(3)).contiguous()
-#         data = data.permute(1, 0, 2, 3, 4).contiguous()
-
-#         return self.model(data).mean(0).cpu()
-
 
 def evaluate_model(i3d_model, eval_video, data_gen, total_num, output_file=None):
     if output_file is not None:
@@ -46,7 +31,7 @@ def evaluate_model(i3d_model, eval_video, data_gen, total_num, output_file=None)
             if i % 10 == 0:
                 print('video {}/{} done, {:.02f}%, average {:.5f} sec/video'.format(
                     i, total_num, i*100/total_num, float(cnt_time)/i))
-                if i % 100 == 0:
+                if i % 50 == 0:
                     # Saving as the program goes in case of error
                     if output_file is not None:
                         with open(output_file, 'a') as file:

@@ -17,7 +17,7 @@ class Bottleneck(nn.Module):
                                planes,
                                kernel_size=(time_kernel, 1, 1),
                                padding=(int((time_kernel-1)/2), 0, 0),
-                               bias=False)  # timepadding: make sure time-dim not reduce
+                               bias=False)
         self.bn1 = nn.BatchNorm3d(planes)
         self.conv2 = nn.Conv3d(planes,
                                planes,
@@ -41,31 +41,21 @@ class Bottleneck(nn.Module):
         residual = x
 
         out = self.conv1(x)
-        # print('bottlenec: conv1', out.size())
         out = self.bn1(out)
-        # print('bottlenec: bn1', out.size())
         out = self.relu(out)
-        # print('bottlenec: relu1', out.size())
 
         out = self.conv2(out)
-        # print('bottlenec: conv2', out.size())
         out = self.bn2(out)
-        # print('bottlenec: bn2', out.size())
         out = self.relu(out)
-        # print('bottlenec: relu2', out.size())
 
         out = self.conv3(out)
-        # print('bottlenec: conv3', out.size())
         out = self.bn3(out)
-        # print('bottlenec: bn3', out.size())
 
         if self.downsample is not None:
             residual = self.downsample(x)
-            # print('bottlenec: downsample', residual.size())
 
         out += residual
         out = self.relu(out)
-        # print('bottlenec: relu3', out.size())
         if self.addnon:
             out = self.nonlocal_block(out)
         return out
@@ -87,14 +77,16 @@ class I3DResNet(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool3d(kernel_size=(2, 3, 3), stride=2)
         self.layer1 = self._make_layer_inflat(block, 64, layers[0], first_block=True)
-        self.temporalpool = nn.MaxPool3d(kernel_size=(3, 1, 1), stride=(2, 1, 1), padding=(1, 0, 0))
+        self.temporalpool = nn.MaxPool3d(kernel_size=(2, 1, 1), stride=(2, 1, 1))  # author's code
+        # self.temporalpool = nn.MaxPool3d(kernel_size=(3, 1, 1), stride=(2, 1, 1),
+        #                                  padding=(1, 0, 0))
         self.layer2 = self._make_layer_inflat(block, 128, layers[1], space_stride=2)
         self.layer3 = self._make_layer_inflat(block, 256, layers[2], space_stride=2)
         self.layer4 = self._make_layer_inflat(block, 512, layers[3], space_stride=2)
         self.avgpool = nn.AvgPool3d((int(frame_num/8), 7, 7))
         self.avgdrop = nn.Dropout(0.5)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
-        self.is_train = True
+        self.mode = 'train'
 
     def _make_layer_inflat(self, block, planes, blocks, space_stride=1, first_block=False):
         downsample = None
@@ -135,58 +127,35 @@ class I3DResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def set_test(self):
+    def set_fully_conv_test(self):
         """ Transform the last fc layer in a conv1x1 layer """
         fc_weights = self.fc.state_dict()["weight"]
         conv1x1 = nn.Conv3d(fc_weights.size(1), fc_weights.size(0), 1)
-        conv1x1.state_dict()["weight"].data = fc_weights.view(fc_weights.size(1),
-                                                              fc_weights.size(0), 1, 1)
+        conv1x1.weight.data = fc_weights.view(fc_weights.size(0), fc_weights.size(1), 1, 1, 1)
         self.conv1x1 = conv1x1
-        # self.avgpool2 = nn.AvgPool3d(1)
-        self.is_train = False
+        self.mode = 'test'
 
     def forward(self, x):
-        # print(x.size())
         x = self.conv1(x)
-        # print('conv1', x.size())
         x = self.bn1(x)
-        # print('bn1', x.size())
         x = self.relu(x)
-        # print('relu1', x.size())
         x = self.maxpool(x)
-        # print('maxpool', x.size())
         x = self.layer1(x)
-        # print('layers1', x.size())
         x = self.temporalpool(x)
-        # print('tempool', x.size())
         x = self.layer2(x)
-        # print('layer2', x.size())
         x = self.layer3(x)
-        # print('layer3', x.size())
         x = self.layer4(x)
-        # print('layer4', x.size())
         x = self.avgpool(x)
-        # print('avgpool', x.size())
-        if self.is_train:
+        if self.mode == 'train':
             x = x.view(x.size(0), -1)
             x = self.avgdrop(x)
-            # print('avgdrop', x.size())
             x = self.fc(x)
-            # print('---end---')
-        else:
+        elif self.mode == 'val':
+            x = x.view(x.size(0), -1)
+            x = self.fc(x)
+        elif self.mode == 'test':
             x = self.conv1x1(x)
-            # print('conv1', x.size())
-            x = x.permute(0, 2, 3, 4, 1).contiguous()
-            # print('permute', x.size())
-            # old_shape = x.size()
-            x = x.view(-1, x.size(4))
-            # x = self.softmax(x)
-            # print('softmax', x.size())
-            # x = x.view(old_shape)
-            # print('view', x.size())
-            # x = x.permute(0, 4, 1, 2, 3).contiguous()
-            # print('permute', x.size())
-            # x = x.mean(4).mean(3).mean(2)
+            x = x.mean(2).mean(2).mean(2)
 
         return x
 
