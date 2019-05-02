@@ -1,5 +1,6 @@
 import os
 
+import cv2
 import jpeg4py as jpeg
 import numpy as np
 import torch.utils.data as data
@@ -10,26 +11,46 @@ import transforms as t
 
 
 class VideoRecord(object):
-    def __init__(self, row):
-        self._data = row
+    def __init__(self, video_path):
+        self.path = video_path
+        self.video = cv2.VideoCapture(self.path)
+        self.num_frames = self.get_num_frames()
 
-    @property
-    def label(self):
-        return int(self._data[0])
+    def get_num_frames(self):
+        count = 0
+        success, frame = self.video.read()
+        while(success):
+            success, frame = self.video.read()
+            count += 1
+        self.video.set(2, 0)
+        return count
 
-    @property
-    def path(self):
-        return self._data[1]
+    def get_frames(self, indices):
+        """
+        Argument:
+            indices : sorted list of frames indices
+        Returns:
+            images : Dictionary in format {frame_id: PIL Image}
+        """
+        images = dict()
+        self.video.set(cv2.CAP_PROP_POS_FRAMES, min(indices))
+        for count in range(min(indices), max(indices)+1):
+            success, frame = self.video.read()
+            if success is False:
+                print('\nCould not load frame {} from video {}\n'.format(count, self.path))
+                return None
 
-    @property
-    def num_frames(self):
-        return int(self._data[2])
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            if count in indices:
+                images[count] = Image.fromarray(frame)
+
+        return images
 
 
 class VideoDataset(data.Dataset):
     def __init__(self, root_path, list_file, sample_frames=32,
                  image_tmpl='frame_{:06d}.jpg', transform=None,
-                 force_grayscale=False, train_mode=True, test_clips=10):
+                 train_mode=True, test_clips=10):
         self.root_path = root_path
         self.list_file = list_file
         self.sample_frames = sample_frames
@@ -55,7 +76,7 @@ class VideoDataset(data.Dataset):
             return None
 
     def _parse_list(self):
-        self.video_list = [VideoRecord(x.strip().split(' ')) for x in open(self.list_file)]
+        self.video_list = [x.strip().split(' ') for x in open(self.list_file)]
 
     def _sample_indices(self, record):
         """
@@ -97,34 +118,35 @@ class VideoDataset(data.Dataset):
         return checked_offsets
 
     def __getitem__(self, index):
-        record = self.video_list[index]
+        index = index
+        label, video_path = self.video_list[index]
+        record = VideoRecord(os.path.join(self.root_path, video_path))
 
         if self.train_mode:
             segment_indices = self._sample_indices(record)
-            process_data, label = self.get(record, segment_indices)
+            process_data = self.get(record, segment_indices)
             while process_data is None:
                 index = randint(0, len(self.video_list) - 1)
                 process_data, label = self.__getitem__(index)
         else:
             segment_indices = self._get_test_indices(record)
-            process_data, label = self.get(record, segment_indices)
+            process_data = self.get(record, segment_indices)
             if process_data is None:
                 raise ValueError('sample indices:', record.path, segment_indices)
 
-        return process_data, label
+        return process_data, int(label)
 
     def get(self, record, indices):
         uniq_imgs = {}
         uniq_id = np.unique(indices)
-        for ind in uniq_id:
-            seg_img = self._load_image(record.path, ind)
-            if seg_img is None:
-                return None, None
-            uniq_imgs[ind] = seg_img
+        uniq_imgs = record.get_frames(uniq_id)
 
-        images = [uniq_imgs[i][0] for i in indices]
+        if None in uniq_imgs:
+            return None
+
+        images = [uniq_imgs[i] for i in indices]
         images = self.transform(images)
-        return images, record.label
+        return images
 
     def __len__(self):
         return len(self.video_list)

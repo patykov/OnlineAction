@@ -4,16 +4,14 @@ import time
 import numpy as np
 import torch.nn as nn
 import torch.nn.parallel
-import torch.optim
 
 import eval_utils as eu
 import models.nonlocal_net as i3d
 import transforms as t
-from datasets.video_dataset import VideoDataset
+from datasets.VideoDataset import VideoDataset
 
 # options
-parser = argparse.ArgumentParser(
-    description="Standard video-level testing")
+parser = argparse.ArgumentParser()
 parser.add_argument('--map_file', type=str)
 parser.add_argument('--root_data_path', type=str, default=("/media/v-pakova/New Volume/"
                                                            "Datasets/Kinetics/400/val_frames_256"))
@@ -39,17 +37,15 @@ num_class = 400
 start = time.time()
 i3d_model = i3d.resnet50()
 i3d_model.load_state_dict(torch.load(args.weights_file))
-if args.mode == 'test':
-    i3d_model.set_fully_conv_test()
-else:
-    i3d_model.mode = 'val'
+i3d_model.set_mode(args.mode)
+
 print('Loading model took {}'.format(time.time() - start))
 
-# i3d_model = torch.nn.DataParallel(i3d_model).to('cuda')
 device = torch.device("cuda")
+# i3d_model = torch.nn.DataParallel(i3d_model).to(device)
 # i3d_model.to(device)
 
-transforms = t.get_default_transforms(args.mode)
+transforms = t.get_default_transforms(i3d_model.mode)
 
 data_loader = torch.utils.data.DataLoader(
         VideoDataset(args.root_data_path, args.map_file, sample_frames=args.sample_frames,

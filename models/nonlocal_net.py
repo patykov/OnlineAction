@@ -127,6 +127,12 @@ class I3DResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
+    def set_mode(self, mode):
+        self.mode = mode
+
+        if self.mode == 'test':
+            self.set_fully_conv_test()
+
     def set_fully_conv_test(self):
         """ Transform the last fc layer in a conv1x1 layer """
         fc_weights = self.fc.state_dict()["weight"]
@@ -180,8 +186,8 @@ class _NonLocalBlockND(nn.Module):
 
         self.g = nn.Conv3d(in_channels=self.in_channels, out_channels=self.inter_channels,
                            kernel_size=1, stride=1, padding=0)
-        # nn.init.kaiming_normal_(self.g.weight)
-        # nn.init.constant_(self.g.bias, 0)
+        nn.init.kaiming_normal_(self.g.weight)
+        nn.init.constant_(self.g.bias, 0)
 
         if bn_layer:
             self.W = nn.Sequential(
@@ -189,16 +195,16 @@ class _NonLocalBlockND(nn.Module):
                           kernel_size=1, stride=1, padding=0),
                 nn.BatchNorm3d(self.in_channels)
             )
-            # nn.init.kaiming_normal_(self.W[0].weight)
-            # nn.init.constant_(self.W[0].bias, 0)
-            # nn.init.constant_(self.W[1].weight, 0)
-            # nn.init.constant_(self.W[1].bias, 0)
+            nn.init.kaiming_normal_(self.W[0].weight)
+            nn.init.constant_(self.W[0].bias, 0)
+            nn.init.constant_(self.W[1].weight, 0)
+            nn.init.constant_(self.W[1].bias, 0)
 
         else:
             self.W = nn.Conv3d(in_channels=self.inter_channels, out_channels=self.in_channels,
                                kernel_size=1, stride=1, padding=0)
-            # nn.init.kaiming_normal(self.W.weight)
-            # nn.init.constant(self.W.bias, 0)
+            nn.init.kaiming_normal(self.W.weight)
+            nn.init.constant(self.W.bias, 0)
 
         self.theta = nn.Conv3d(in_channels=self.in_channels, out_channels=self.inter_channels,
                                kernel_size=1, stride=1, padding=0)
@@ -282,34 +288,32 @@ def resnet50(pretrained=False, **kwargs):
 
 def copy_weigths_i3dResNet(weigths_file_path, new_model, save_model=False, new_model_name=None):
     with open(weigths_file_path, 'rb') as model_file:
-        pretrained_data = pickle.load(model_file, encoding='latin1')
+        data = pickle.load(model_file, encoding='latin1')
 
-    pretrained_data1 = pretrained_data['blobs']
     # Removing training parameters
-    pretrained_data2 = {k: v for k, v in pretrained_data1.items() if
-                        ('momentum' not in k) and ('bn_rm' not in k) and ('bn_riv' not in k)
-                        and ('lr' not in k) and ('model_iter' not in k)}
+    pretrained_data = {k: v for k, v in data['blobs'].items() if
+                       ('momentum' not in k) and ('bn_rm' not in k) and ('bn_riv' not in k)
+                       and ('lr' not in k) and ('model_iter' not in k)}
 
-    # Absorb std to conv1
-    data_std = [0.225, 0.225, 0.225]
-    w = pretrained_data2['conv1_w']
-    for i in range(3):
-        w[:, i, :, :, :] /= (data_std[i] * 255)
-    assert(np.array_equal(pretrained_data2['conv1_w'], w))
+    # conv1 bgr2rgb
+    # w = pretrained_data['conv1_w']
+    # rgb_w = w[:, ::-1, :, :, :]
+    # pretrained_data['conv1_w'] = np.array(rgb_w)
+    # assert(np.array_equal(pretrained_data['conv1_w'], rgb_w))
 
-    pretrained_data_list = sorted(pretrained_data2.items())
+    pretrained_data_list = sorted(pretrained_data.items())
 
     # Renaming layers
-    pretrained_data3 = {}
+    renamed_data = {}
     for k, v in pretrained_data_list:
         a = k[:]
-        # Correcting the end
+        # Correcting the name's end
         if a[-2:] == '_b':
             a = a[:-2]+'.bias'
         elif a[-2:] == '_s' or a[-2:] == '_w':
             a = a[:-2]+'.weight'
 
-        # Correcting the begin
+        # Correcting the name's begin
         a = a.replace('res_conv1_bn', 'bn1')
         a = a.replace('pred', 'fc')
         r = re.compile('res._*')
@@ -317,7 +321,7 @@ def copy_weigths_i3dResNet(weigths_file_path, new_model, save_model=False, new_m
             layer = int(a[3])-1
             a = 'layer'+str(layer)+'.'+a[5:]
 
-        # Correcting the middle
+        # Correcting the name's middle
         a = a.replace('_branch1_bn', '.downsample.1')
         a = a.replace('_branch1', '.downsample.0')
 
@@ -335,22 +339,19 @@ def copy_weigths_i3dResNet(weigths_file_path, new_model, save_model=False, new_m
             a = a.replace('phi', 'phi.0')
             a = a.replace('.g.', '.g.0.')
 
-        pretrained_data3[a] = {'old_name': k, 'data': v}
+        renamed_data[a] = {'old_name': k, 'data': v}
 
     # Checking name, shape and number of layers
     param_i3d_keys = new_model.state_dict().keys()
-    count = 0
-    for k, v in pretrained_data3.items():
+    for k, v in renamed_data.items():
         assert(k in param_i3d_keys)
-        count += 1
         assert(new_model.state_dict()[k].shape == v['data'].shape)
-
-    assert count == len(list(new_model.named_parameters()))
+    assert len(list(renamed_data.keys())) == len(list(new_model.named_parameters()))
 
     # Copying weigths
     for k, v in new_model.named_parameters():
-        new_data = pretrained_data3[k]['data']
-        v.data = nn.Parameter(torch.Tensor(new_data))
+        new_data = np.array(renamed_data[k]['data'])
+        v.data.copy_(torch.from_numpy(new_data))
 
     if save_model:
         # Saving new model
@@ -367,4 +368,4 @@ if __name__ == '__main__':
                                         new_model_name="../../../models/pre-trained/"
                                                        "resnet50_i3d_kinetics")
 
-    # print(resnet_i3d)
+    print(resnet_i3d)
