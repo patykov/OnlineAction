@@ -66,15 +66,6 @@ class VideoDataset(data.Dataset):
 
         self._parse_list()
 
-    def _load_image(self, video_dir, idx):
-        img_path = os.path.join(self.root_path, video_dir, self.image_tmpl.format(idx))
-        try:
-            # Loading images with PIL is slower.
-            return [Image.fromarray(jpeg.JPEG(img_path).decode()).convert('RGB')]
-        except IOError:
-            print("Couldn't load image:{}".format(img_path))
-            return None
-
     def _parse_list(self):
         self.video_list = [x.strip().split(' ') for x in open(self.list_file)]
 
@@ -118,7 +109,6 @@ class VideoDataset(data.Dataset):
         return checked_offsets
 
     def __getitem__(self, index):
-        index = index
         label, video_path = self.video_list[index]
         record = VideoRecord(os.path.join(self.root_path, video_path))
 
@@ -134,7 +124,11 @@ class VideoDataset(data.Dataset):
             if process_data is None:
                 raise ValueError('sample indices:', record.path, segment_indices)
 
-        return process_data, int(label)
+        data = process_data.squeeze(0)
+        data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
+        data = data.permute(1, 0, 2, 3, 4).contiguous()
+
+        return data, int(label)
 
     def get(self, record, indices):
         uniq_imgs = {}
@@ -150,3 +144,74 @@ class VideoDataset(data.Dataset):
 
     def __len__(self):
         return len(self.video_list)
+
+
+class VideoFrameRecord(object):
+    def __init__(self, row):
+        self._data = row
+
+    @property
+    def label(self):
+        return int(self._data[0])
+
+    @property
+    def path(self):
+        return self._data[1]
+
+    @property
+    def num_frames(self):
+        return int(self._data[2])
+
+
+class VideoFrameDataset(VideoDataset):
+    def __init__(self, root_path, list_file, sample_frames=32,
+                 image_tmpl='frame_{:06d}.jpg', transform=None,
+                 train_mode=True, test_clips=10):
+        VideoDataset.__init__(self, root_path, list_file, sample_frames, image_tmpl,
+                              transform, train_mode, test_clips)
+
+    def _load_image(self, video_dir, idx):
+        img_path = os.path.join(self.root_path, video_dir, self.image_tmpl.format(idx))
+        try:
+            # Loading images with PIL is slower.
+            return [Image.fromarray(jpeg.JPEG(img_path).decode()).convert('RGB')]
+        except IOError:
+            print("Couldn't load image:{}".format(img_path))
+            return None
+
+    def _parse_list(self):
+        self.video_list = [VideoFrameRecord(x.strip().split(' ')) for x in open(self.list_file)]
+
+    def __getitem__(self, index):
+        record = self.video_list[index]
+
+        if self.train_mode:
+            segment_indices = self._sample_indices(record)
+            process_data, label = self.get(record, segment_indices)
+            while process_data is None:
+                index = randint(0, len(self.video_list) - 1)
+                process_data, label = self.__getitem__(index)
+        else:
+            segment_indices = self._get_test_indices(record)
+            process_data, label = self.get(record, segment_indices)
+            if process_data is None:
+                raise ValueError('sample indices:', record.path, segment_indices)
+
+        data = process_data.squeeze(0)
+        data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
+        data = data.permute(1, 0, 2, 3, 4).contiguous()
+
+        return data, label
+
+    def get(self, record, indices):
+        uniq_imgs = {}
+        uniq_id = np.unique(indices)
+        for ind in uniq_id:
+            seg_img = self._load_image(record.path, ind)
+            if seg_img is None:
+                return None, None
+            uniq_imgs[ind] = seg_img
+
+        images = [uniq_imgs[i][0] for i in indices]
+        images = self.transform(images)
+        return images, record.label

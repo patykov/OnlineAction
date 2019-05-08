@@ -35,7 +35,7 @@ class Bottleneck(nn.Module):
         self.downsample = downsample
         self.addnon = addnon
         if self.addnon:
-            self.nonlocal_block = NonLocalBlock3D(in_channels=planes * 4, mode='embedded_gaussian')
+            self.nonlocal_block = NonLocalBlock(in_channels=planes * 4, mode='embedded_gaussian')
 
     def forward(self, x):
         residual = x
@@ -63,10 +63,11 @@ class Bottleneck(nn.Module):
 
 class I3DResNet(nn.Module):
 
-    def __init__(self, block, layers, frame_num=32, num_classes=400):
+    def __init__(self, block, layers, frame_num=32, num_classes=400, non_local=True):
         if torch.cuda.is_available():
             torch.set_default_tensor_type('torch.cuda.FloatTensor')
         self.inplanes = 64
+        self.non_local = non_local
         super(I3DResNet, self).__init__()
         self.conv1 = nn.Conv3d(3, 64,
                                kernel_size=(5, 7, 7),
@@ -75,11 +76,9 @@ class I3DResNet(nn.Module):
                                bias=False)
         self.bn1 = nn.BatchNorm3d(64)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool3d(kernel_size=(2, 3, 3), stride=2)
+        self.maxpool = nn.MaxPool3d(kernel_size=(2, 3, 3), stride=2, padding=(0, 0, 0))
         self.layer1 = self._make_layer_inflat(block, 64, layers[0], first_block=True)
-        self.temporalpool = nn.MaxPool3d(kernel_size=(2, 1, 1), stride=(2, 1, 1))  # author's code
-        # self.temporalpool = nn.MaxPool3d(kernel_size=(3, 1, 1), stride=(2, 1, 1),
-        #                                  padding=(1, 0, 0))
+        self.temporalpool = nn.MaxPool3d(kernel_size=(2, 1, 1), stride=(2, 1, 1), padding=(0, 0, 0))
         self.layer2 = self._make_layer_inflat(block, 128, layers[1], space_stride=2)
         self.layer3 = self._make_layer_inflat(block, 256, layers[2], space_stride=2)
         self.layer4 = self._make_layer_inflat(block, 512, layers[3], space_stride=2)
@@ -116,7 +115,8 @@ class I3DResNet(nn.Module):
             time_kernel = 1
             add_nonlocal = True
             for i in range(1, blocks):
-                layers.append(block(self.inplanes, planes, time_kernel, addnon=add_nonlocal))
+                layers.append(block(self.inplanes, planes, time_kernel,
+                                    addnon=add_nonlocal if self.non_local else False))
                 time_kernel = (time_kernel + 2) % 4
                 add_nonlocal = not add_nonlocal
         else:
@@ -139,7 +139,6 @@ class I3DResNet(nn.Module):
         conv1x1 = nn.Conv3d(fc_weights.size(1), fc_weights.size(0), 1)
         conv1x1.weight.data = fc_weights.view(fc_weights.size(0), fc_weights.size(1), 1, 1, 1)
         self.conv1x1 = conv1x1
-        self.mode = 'test'
 
     def forward(self, x):
         x = self.conv1(x)
@@ -161,15 +160,15 @@ class I3DResNet(nn.Module):
             x = self.fc(x)
         elif self.mode == 'test':
             x = self.conv1x1(x)
-            x = x.mean(2).mean(2).mean(2)
+            x = x.mean(4).mean(3).mean(2)
 
         return x
 
 
-class _NonLocalBlockND(nn.Module):
+class NonLocalBlock(nn.Module):
     def __init__(self, in_channels, inter_channels=None, mode='embedded_gaussian',
                  sub_sample=True, bn_layer=True):
-        super(_NonLocalBlockND, self).__init__()
+        super(NonLocalBlock, self).__init__()
 
         assert mode in ['embedded_gaussian', 'gaussian', 'dot_product', 'concatenation']
 
@@ -186,8 +185,6 @@ class _NonLocalBlockND(nn.Module):
 
         self.g = nn.Conv3d(in_channels=self.in_channels, out_channels=self.inter_channels,
                            kernel_size=1, stride=1, padding=0)
-        nn.init.kaiming_normal_(self.g.weight)
-        nn.init.constant_(self.g.bias, 0)
 
         if bn_layer:
             self.W = nn.Sequential(
@@ -195,8 +192,6 @@ class _NonLocalBlockND(nn.Module):
                           kernel_size=1, stride=1, padding=0),
                 nn.BatchNorm3d(self.in_channels)
             )
-            nn.init.kaiming_normal_(self.W[0].weight)
-            nn.init.constant_(self.W[0].bias, 0)
             nn.init.constant_(self.W[1].weight, 0)
             nn.init.constant_(self.W[1].bias, 0)
 
@@ -234,46 +229,25 @@ class _NonLocalBlockND(nn.Module):
 
         # g=>(b, c, t, h, w)->(b, 0.5c, t, h, w)->(b, thw, 0.5c)
         g_x = self.g(x).view(batch_size, self.inter_channels, -1)
-        # print('Bottlenec: Non-local: g:', g_x.size())
         g_x = g_x.permute(0, 2, 1)
-        # print('Bottlenec: Non-local: reshape:', g_x.size())
 
         # theta=>(b, c, t, h, w)[->(b, 0.5c, t, h, w)]->(b, thw, 0.5c)
         # phi  =>(b, c, t, h, w)[->(b, 0.5c, t, h, w)]->(b, 0.5c, thw)
         # f=>(b, thw, 0.5c)dot(b, 0.5c, twh) = (b, thw, thw)
         theta_x = self.theta(x).view(batch_size, self.inter_channels, -1)
-        # print('Bottlenec: Non-local: theta:', theta_x.size())
         theta_x = theta_x.permute(0, 2, 1)
-        # print('Bottlenec: Non-local: reshape:', theta_x.size())
         phi_x = self.phi(x).view(batch_size, self.inter_channels, -1)
-        # print('Bottlenec: Non-local: phi:', phi_x.size())
         f = torch.matmul(theta_x, phi_x)
-        # print('Bottlenec: Non-local: amtmul:', f.size())
         f_div_C = F.softmax(f, dim=-1)
-        # print('Bottlenec: Non-local: softmax:', f_div_C.size())
 
         # (b, thw, thw)dot(b, thw, 0.5c) = (b, thw, 0.5c)->(b, 0.5c, t, h, w)->(b, c, t, h, w)
         y = torch.matmul(f_div_C, g_x)
-        # print('Bottlenec: Non-local: matmul:', y.size())
         y = y.permute(0, 2, 1).contiguous()
-        # print('Bottlenec: Non-local: reshape:', y.size())
         y = y.view(batch_size, self.inter_channels, *x.size()[2:])
-        # print('Bottlenec: Non-local: view:', y.size())
         W_y = self.W(y)
-        # print('Bottlenec: Non-local: W:', W_y.size())
         z = W_y + x
 
         return z
-
-
-class NonLocalBlock3D(_NonLocalBlockND):
-    def __init__(self, in_channels, inter_channels=None, mode='embedded_gaussian',
-                 sub_sample=True, bn_layer=True):
-        super(NonLocalBlock3D, self).__init__(in_channels,
-                                              inter_channels=inter_channels,
-                                              mode=mode,
-                                              sub_sample=sub_sample,
-                                              bn_layer=bn_layer)
 
 
 def resnet50(pretrained=False, **kwargs):
@@ -292,14 +266,7 @@ def copy_weigths_i3dResNet(weigths_file_path, new_model, save_model=False, new_m
 
     # Removing training parameters
     pretrained_data = {k: v for k, v in data['blobs'].items() if
-                       ('momentum' not in k) and ('bn_rm' not in k) and ('bn_riv' not in k)
-                       and ('lr' not in k) and ('model_iter' not in k)}
-
-    # conv1 bgr2rgb
-    # w = pretrained_data['conv1_w']
-    # rgb_w = w[:, ::-1, :, :, :]
-    # pretrained_data['conv1_w'] = np.array(rgb_w)
-    # assert(np.array_equal(pretrained_data['conv1_w'], rgb_w))
+                       ('momentum' not in k) and ('lr' not in k) and ('model_iter' not in k)}
 
     pretrained_data_list = sorted(pretrained_data.items())
 
@@ -312,6 +279,10 @@ def copy_weigths_i3dResNet(weigths_file_path, new_model, save_model=False, new_m
             a = a[:-2]+'.bias'
         elif a[-2:] == '_s' or a[-2:] == '_w':
             a = a[:-2]+'.weight'
+        elif a[-3:] == '_rm':
+            a = a[:-3]+'.running_mean'
+        elif a[-4:] == '_riv':
+            a = a[:-4]+'.running_var'
 
         # Correcting the name's begin
         a = a.replace('res_conv1_bn', 'bn1')
@@ -339,33 +310,110 @@ def copy_weigths_i3dResNet(weigths_file_path, new_model, save_model=False, new_m
             a = a.replace('phi', 'phi.0')
             a = a.replace('.g.', '.g.0.')
 
+        print('{:24s} --> {:40s}'.format(k, a))
+
         renamed_data[a] = {'old_name': k, 'data': v}
 
-    # Checking name, shape and number of layers
+    # Checking name and shape
     param_i3d_keys = new_model.state_dict().keys()
     for k, v in renamed_data.items():
         assert(k in param_i3d_keys)
         assert(new_model.state_dict()[k].shape == v['data'].shape)
-    assert len(list(renamed_data.keys())) == len(list(new_model.named_parameters()))
 
     # Copying weigths
-    for k, v in new_model.named_parameters():
+    new_state_dict = {}
+    for k in new_model.state_dict():
+        if k not in renamed_data:
+            continue
         new_data = np.array(renamed_data[k]['data'])
-        v.data.copy_(torch.from_numpy(new_data))
+        new_state_dict[k] = torch.from_numpy(new_data)
 
     if save_model:
         # Saving new model
-        torch.save(new_model.state_dict(), '{}.pt'.format(new_model_name))
+        torch.save(new_state_dict, '{}.pt'.format(new_model_name))
+
+    return new_model
+
+
+def convert_i3d_weights(weigths_file_path, new_model, save_model=False, new_model_name=None):
+    """ https://github.com/Tushar-N/pytorch-resnet3d """
+
+    data = pickle.load(open(weigths_file_path, 'rb'), encoding='latin')['blobs']
+    data = {k: v for k, v in data.items() if 'momentum' not in k}
+
+    downsample_pat = re.compile('res(.)_(.)_branch1_.*')
+    conv_pat = re.compile('res(.)_(.)_branch2(.)_.*')
+    nonlocal_pat = re.compile('nonlocal_conv(.)_(.)_*')
+    m2num = dict(zip('abc', [1, 2, 3]))
+    suffix_dict = {
+        'b': 'bias', 'w': 'weight', 's': 'weight', 'rm': 'running_mean', 'riv': 'running_var'}
+    nonlocal_dict = {'out': 'W.0', 'bn': 'W.1', 'phi': 'phi.0', 'g': 'g.0', 'theta': 'theta'}
+
+    key_map = {'conv1.weight': 'conv1_w',
+               'bn1.weight': 'res_conv1_bn_s',
+               'bn1.bias': 'res_conv1_bn_b',
+               'bn1.running_mean': 'res_conv1_bn_rm',
+               'bn1.running_var': 'res_conv1_bn_riv',
+               'fc.weight': 'pred_w',
+               'fc.bias': 'pred_b'}
+
+    for key in data:
+        conv_match = conv_pat.match(key)
+        if conv_match:
+            layer, block, module = conv_match.groups()
+            layer, block, module = int(layer), int(block), m2num[module]
+            name = 'bn' if 'bn_' in key else 'conv'
+            suffix = suffix_dict[key.split('_')[-1]]
+            new_key = 'layer%d.%d.%s%d.%s' % (layer-1, block, name, module, suffix)
+            key_map[new_key] = key
+
+        ds_match = downsample_pat.match(key)
+        if ds_match:
+            layer, block = ds_match.groups()
+            layer, block = int(layer), int(block)
+            module = 0 if key[-1] == 'w' else 1
+            name = 'downsample'
+            suffix = suffix_dict[key.split('_')[-1]]
+            new_key = 'layer%d.%d.%s.%d.%s' % (layer-1, block, name, module, suffix)
+            key_map[new_key] = key
+
+        nl_match = nonlocal_pat.match(key)
+        if nl_match:
+            layer, block = nl_match.groups()
+            layer, block = int(layer), int(block)
+            nl_op = nonlocal_dict[key.split('_')[-2]]
+            suffix = suffix_dict[key.split('_')[-1]]
+            new_key = 'layer%d.%d.nonlocal_block.%s.%s' % (layer-1, block, nl_op, suffix)
+            key_map[new_key] = key
+
+    state_dict = new_model.state_dict()
+
+    new_state_dict = {
+        key: torch.from_numpy(data[key_map[key]]) for key in state_dict if key in key_map}
+
+    # Check if weight dimensions match
+    for key in state_dict:
+
+        if key not in key_map:
+            continue
+
+        data_v, pth_v = data[key_map[key]], state_dict[key]
+        assert str(tuple(data_v.shape)) == str(tuple(pth_v.shape)), 'Size Mismatch'
+        print('{:24s} --> {:40s} | {:21s}'.format(key_map[key], key, str(tuple(data_v.shape))))
+
+    if save_model:
+        # Saving new model weights
+        torch.save(new_state_dict, '{}.pth'.format(new_model_name))
 
     return new_model
 
 
 if __name__ == '__main__':
-    pre_trained_file = ("/media/v-pakova/New Volume/OnlineActionRecognition/models/pre-trained/"
+    pre_trained_file = ("/media/v-pakova/New Volume1/OnlineActionRecognition/models/pre-trained/"
                         "non-local/i3d_nonlocal_32x2_IN_pretrain_400k.pkl")
-    blank_resnet_i3d = resnet50()
-    resnet_i3d = copy_weigths_i3dResNet(pre_trained_file, blank_resnet_i3d, save_model=True,
-                                        new_model_name="../../../models/pre-trained/"
-                                                       "resnet50_i3d_kinetics")
+    blank_resnet_i3d = resnet50(non_local=True)
+    resnet_i3d = convert_i3d_weights(pre_trained_file, blank_resnet_i3d, save_model=True,
+                                     new_model_name="../../../models/pre-trained/"
+                                     "resnet50_nl_i3d_kinetics2")
 
     print(resnet_i3d)

@@ -74,10 +74,23 @@ def create_videos_list(dir_path, file_path, classes_file):
         file.write(files_text)
 
 
+def create_video_clips_list(dir_path, file_path, classes_file):
+    classes = load_labels_file(classes_file)
+    files_text = ''
+    for c_name, c_id in classes.items():
+        class_path = os.path.join(dir_path, c_name)
+        videos = os.listdir(class_path)
+        files_text += ''.join(['{} {}\n'.format(
+            c_id,
+            os.path.join(c_name, v)) for v in videos])
+
+    with open(file_path, 'w') as file:
+        file.write(files_text)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dir_path', type=str)
-    parser.add_argument('--output_path', type=str)
     parser.add_argument('--classes_file', type=str, default=None)
 
     args = parser.parse_args()
@@ -89,9 +102,7 @@ if __name__ == '__main__':
     else:
         classes_file = args.classes_file
 
-    # Extract frames
-    extract_frames(args.dir_path, args.output_path)
-
-    # Create list file
-    list_file = os.path.splitext(args.dir_path)[1] + '_list.txt'
-    create_videos_list(args.output_path, list_file, classes_file)
+    # Create clips list file
+    list_file = os.path.join(os.path.dirname(args.dir_path),
+                             os.path.basename(args.dir_path) + '_list.txt')
+    create_video_clips_list(args.dir_path, list_file, classes_file)

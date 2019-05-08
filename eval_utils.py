@@ -1,49 +1,43 @@
 
 import os
-import time
 
 import numpy as np
-import torch
 from sklearn.metrics import classification_report, confusion_matrix
 
 
-def evaluate_model(i3d_model, eval_video, data_gen, total_num, output_file=None):
-    if output_file is not None:
-        with open(output_file, 'w') as file:
-            file.write('{:^10} | {:^20}\n'.format('Label', 'Top5 predition'))
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
 
-    proc_start_time = time.time()
+    def __init__(self):
+        self.reset()
 
-    score_text = ''
-    video_pred = []
-    video_labels = []
-    with torch.no_grad():
-        for i, (data, label) in data_gen:
-            rst = eval_video(data)
-            cnt_time = time.time() - proc_start_time
+    def reset(self):
+        self.val = 0.0
+        self.avg = 0.0
+        self.sum = 0.0
+        self.count = 0
 
-            _, top5_pred = torch.topk(rst, 5)
-            video_pred.append(top5_pred)
-            video_labels.append(label[0])
-            score_text += '{:^10} | {:^20}\n'.format(label[0], np.array2string(
-                top5_pred.numpy(), separator=', ')[1:-1])
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
 
-            if i % 10 == 0:
-                print('video {}/{} done, {:.02f}%, average {:.5f} sec/video'.format(
-                    i, total_num, i*100/total_num, float(cnt_time)/i))
-                if i % 50 == 0:
-                    # Saving as the program goes in case of error
-                    if output_file is not None:
-                        with open(output_file, 'a') as file:
-                            file.write(score_text)
-                    score_text = ''
 
-    # Saving last < 100 lines
-    if output_file is not None:
-        with open(output_file, 'a') as file:
-            file.write(score_text)
+def accuracy(output, target, topk=(1,)):
+    """Computes the precision@k for the specified values of k"""
+    maxk = max(topk)
+    batch_size = target.size(0)
 
-    save_metrics(video_pred, video_labels, output_file)
+    _, pred = output.topk(maxk, 1, True, True)
+    pred = pred.t()
+    correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+    res = []
+    for k in topk:
+        correct_k = correct[:k].view(-1).float().sum(0)
+        res.append(correct_k.mul_(100.0 / batch_size))
+    return res
 
 
 def get_acc_report(predictions, labels):

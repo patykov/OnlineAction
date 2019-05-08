@@ -2,7 +2,6 @@ import argparse
 import time
 
 import numpy as np
-import torch.nn as nn
 import torch.nn.parallel
 
 import eval_utils as eu
@@ -13,17 +12,18 @@ from datasets.VideoDataset import VideoDataset
 # options
 parser = argparse.ArgumentParser()
 parser.add_argument('--map_file', type=str)
-parser.add_argument('--root_data_path', type=str, default=("/media/v-pakova/New Volume/"
+parser.add_argument('--root_data_path', type=str, default=("/media/v-pakova/New Volume1/"
                                                            "Datasets/Kinetics/400/val_frames_256"))
 parser.add_argument('--base_model', type=str, default="resnet50")
-parser.add_argument('--weights_file', type=str, default="/media/v-pakova/New Volume/"
-                    "OnlineActionRecognition/models/pre-trained/resnet50_i3d_kinetics.pt")
+parser.add_argument('--weights_file', type=str, default="/media/v-pakova/New Volume1/"
+                    "OnlineActionRecognition/models/pre-trained/resnet50_nl_i3d_kinetics.pth")
 parser.add_argument('--output_file', type=str, default=None)
+parser.add_argument('--baseline', action='store_false')
 parser.add_argument('--mode', type=str, default='test')
 parser.add_argument('--test_clips', type=int, default=10)
 parser.add_argument('--sample_frames', type=int, default=32)
 parser.add_argument('--test_crops', type=int, default=1)
-parser.add_argument('--workers', default=6, type=int,
+parser.add_argument('--workers', default=4, type=int,
                     help='number of data loading workers (default: 4)')
 
 args = parser.parse_args()
@@ -32,18 +32,15 @@ assert args.mode in ['test', 'val'], ('Mode {} does not exist. Choose between "v
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
-num_class = 400
-
 start = time.time()
-i3d_model = i3d.resnet50()
+
+i3d_model = i3d.resnet50(non_local=args.baseline)
 i3d_model.load_state_dict(torch.load(args.weights_file))
 i3d_model.set_mode(args.mode)
+i3d_model.eval()
+# i3d_model = torch.nn.DataParallel(i3d_model)
 
 print('Loading model took {}'.format(time.time() - start))
-
-device = torch.device("cuda")
-# i3d_model = torch.nn.DataParallel(i3d_model).to(device)
-# i3d_model.to(device)
 
 transforms = t.get_default_transforms(i3d_model.mode)
 
@@ -57,35 +54,30 @@ data_loader = torch.utils.data.DataLoader(
 total_num = len(data_loader.dataset)
 data_gen = enumerate(data_loader, start=1)
 
-num_channel = 3
-num_depth = 32
-softmax = nn.Softmax(dim=0)
-
 
 def eval_video(data):
-    data = data.to(device)
-    data = data.squeeze(0)
-    data = data.view(num_channel, -1, num_depth, data.size(2), data.size(3)).contiguous()
-    data = data.permute(1, 0, 2, 3, 4).contiguous()
+    data = data.squeeze(0).cuda()
 
-    return softmax(i3d_model(data).mean(0)).cpu()
+    return i3d_model(data).mean(0).cpu()
 
-
-# eu.evaluate_model(i3d_model, eval_video, data_gen, total_num, args.output_file)
 
 if args.output_file is not None:
     with open(args.output_file, 'w') as file:
         file.write('{:^10} | {:^20}\n'.format('Label', 'Top5 predition'))
 
-proc_start_time = time.time()
-
 score_text = ''
 video_pred = []
 video_labels = []
+batch_time = eu.AverageMeter()
+data_time = eu.AverageMeter()
 with torch.no_grad():
+
+    end = time.time()
     for i, (data, label) in data_gen:
+        # measure data loading time
+        data_time.update(time.time() - end)
+
         rst = eval_video(data)
-        cnt_time = time.time() - proc_start_time
 
         _, top5_pred = torch.topk(rst, 5)
         video_pred.append(top5_pred)
@@ -93,10 +85,16 @@ with torch.no_grad():
         score_text += '{:^10} | {:^20}\n'.format(label[0], np.array2string(
             top5_pred.numpy(), separator=', ')[1:-1])
 
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
+
         if i % 10 == 0:
-            print('video {}/{} done, {:.02f}%, average {:.5f} sec/video'.format(
-                i, total_num, i*100/total_num, float(cnt_time)/i))
-            if i % 50 == 0:
+            print('Video {}/{} ({:.02f}%) | '
+                  'Time {batch_time.val:.2f}s ({batch_time.avg:.2f}s avg.) | '
+                  'Data {data_time.val:.2f}s ({data_time.avg:.2f}s avg.)'.format(
+                      i, total_num, i*100/total_num, batch_time=batch_time, data_time=data_time))
+            if i % 20 == 0:
                 # Saving as the program goes in case of error
                 if args.output_file is not None:
                     with open(args.output_file, 'a') as file:

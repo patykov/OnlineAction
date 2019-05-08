@@ -40,17 +40,23 @@ class GroupCenterCrop(object):
 
 class ConditionedGroupCenterCrop(object):
 
-    def __init__(self, h, w):
-        self.h = h
-        self.w = w
-        self.worker = torchvision.transforms.CenterCrop((self.h, self.w))
+    def __init__(self, max_size=808, sec_size=256):
+        self.max_size = max_size
+        self.sec_size = sec_size
+        self.w_worker = torchvision.transforms.CenterCrop((sec_size, self.max_size))
+        self.h_worker = torchvision.transforms.CenterCrop((self.max_size, sec_size))
 
     def __call__(self, img_group):
         w, h = img_group[0].size
 
-        if (w > self.w) or (h > self.h):
-            print('\nNeed to crop! Image size from: {}x{} to {}x{}\n'.format(h, w, self.h, self.w))
-            return [self.worker(img) for img in img_group]
+        if w > self.max_size:
+            print('\nNeed to crop width dimention! Image size from: {}x{} to {}x{}\n'.format(
+                w, h, self.max_size, self.sec_size))
+            return [self.w_worker(img) for img in img_group]
+        elif h > self.max_size:
+            print('\nNeed to crop heigth dimention! Image size from: {}x{} to {}x{}\n'.format(
+                w, h, self.sec_size, self.max_size))
+            return [self.h_worker(img) for img in img_group]
         else:
             return img_group
 
@@ -102,12 +108,12 @@ class GroupResize(object):
 class GroupToTensorStack(object):
 
     def __call__(self, img_group):
-        return torch.stack([torchvision.transforms.ToTensor()(img) for img in img_group], dim=1)
+        return torch.stack([torchvision.transforms.ToTensor()(img)*255 for img in img_group], dim=1)
 
 
 def get_default_transforms(mode):
-    input_mean = [0.485, 0.456, 0.406]  # 114.75 / 255
-    input_std = [0.229, 0.224, 0.225]  # 57.375 / 255
+    input_mean = [114.75, 114.75, 114.75]  # [0.485, 0.456, 0.406] -> 114.75 / 255
+    input_std = [57.375, 57.375, 57.375]  # [0.229, 0.224, 0.225] --> 57.375 / 255
 
     if mode == 'val':
         cropping = torchvision.transforms.Compose([
@@ -117,7 +123,7 @@ def get_default_transforms(mode):
     elif mode == 'test':
         cropping = torchvision.transforms.Compose([
             GroupResize(256),
-            ConditionedGroupCenterCrop(256, 808)
+            ConditionedGroupCenterCrop(max_size=808)
         ])
     elif mode == 'train':
         cropping = torchvision.transforms.Compose([
