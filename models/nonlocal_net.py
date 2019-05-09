@@ -1,7 +1,6 @@
 import pickle
 import re
 
-import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -69,9 +68,10 @@ class I3DResNet(nn.Module):
         self.inplanes = 64
         self.non_local = non_local
         super(I3DResNet, self).__init__()
+        temp_stride = 2 if frame_num == 32 else 1
         self.conv1 = nn.Conv3d(3, 64,
                                kernel_size=(5, 7, 7),
-                               stride=(2, 2, 2),
+                               stride=(temp_stride, 2, 2),
                                padding=(2, 3, 3),
                                bias=False)
         self.bn1 = nn.BatchNorm3d(64)
@@ -260,83 +260,8 @@ def resnet50(pretrained=False, **kwargs):
     return model
 
 
-def copy_weigths_i3dResNet(weigths_file_path, new_model, save_model=False, new_model_name=None):
-    with open(weigths_file_path, 'rb') as model_file:
-        data = pickle.load(model_file, encoding='latin1')
-
-    # Removing training parameters
-    pretrained_data = {k: v for k, v in data['blobs'].items() if
-                       ('momentum' not in k) and ('lr' not in k) and ('model_iter' not in k)}
-
-    pretrained_data_list = sorted(pretrained_data.items())
-
-    # Renaming layers
-    renamed_data = {}
-    for k, v in pretrained_data_list:
-        a = k[:]
-        # Correcting the name's end
-        if a[-2:] == '_b':
-            a = a[:-2]+'.bias'
-        elif a[-2:] == '_s' or a[-2:] == '_w':
-            a = a[:-2]+'.weight'
-        elif a[-3:] == '_rm':
-            a = a[:-3]+'.running_mean'
-        elif a[-4:] == '_riv':
-            a = a[:-4]+'.running_var'
-
-        # Correcting the name's begin
-        a = a.replace('res_conv1_bn', 'bn1')
-        a = a.replace('pred', 'fc')
-        r = re.compile('res._*')
-        if r.match(a) is not None:
-            layer = int(a[3])-1
-            a = 'layer'+str(layer)+'.'+a[5:]
-
-        # Correcting the name's middle
-        a = a.replace('_branch1_bn', '.downsample.1')
-        a = a.replace('_branch1', '.downsample.0')
-
-        for i, l in enumerate(['a', 'b', 'c']):
-            a = a.replace('_branch2{}_bn'.format(l), '.bn{}'.format(i+1))
-            a = a.replace('_branch2{}'.format(l), '.conv{}'.format(i+1))
-
-        # Correcting nonlocal
-        if 'nonlocal' in a:
-            layer = int(a[13])-1
-            sub_layer = a[15]
-            a = 'layer{}.{}.nonlocal_block.'.format(layer, sub_layer) + a[17:]
-            a = a.replace('out', 'W.0')
-            a = a.replace('bn', 'W.1')
-            a = a.replace('phi', 'phi.0')
-            a = a.replace('.g.', '.g.0.')
-
-        print('{:24s} --> {:40s}'.format(k, a))
-
-        renamed_data[a] = {'old_name': k, 'data': v}
-
-    # Checking name and shape
-    param_i3d_keys = new_model.state_dict().keys()
-    for k, v in renamed_data.items():
-        assert(k in param_i3d_keys)
-        assert(new_model.state_dict()[k].shape == v['data'].shape)
-
-    # Copying weigths
-    new_state_dict = {}
-    for k in new_model.state_dict():
-        if k not in renamed_data:
-            continue
-        new_data = np.array(renamed_data[k]['data'])
-        new_state_dict[k] = torch.from_numpy(new_data)
-
-    if save_model:
-        # Saving new model
-        torch.save(new_state_dict, '{}.pt'.format(new_model_name))
-
-    return new_model
-
-
 def convert_i3d_weights(weigths_file_path, new_model, save_model=False, new_model_name=None):
-    """ https://github.com/Tushar-N/pytorch-resnet3d """
+    """Expanded from https://github.com/Tushar-N/pytorch-resnet3d """
 
     data = pickle.load(open(weigths_file_path, 'rb'), encoding='latin')['blobs']
     data = {k: v for k, v in data.items() if 'momentum' not in k}
@@ -383,7 +308,8 @@ def convert_i3d_weights(weigths_file_path, new_model, save_model=False, new_mode
             layer, block = int(layer), int(block)
             nl_op = nonlocal_dict[key.split('_')[-2]]
             suffix = suffix_dict[key.split('_')[-1]]
-            new_key = 'layer%d.%d.nonlocal_block.%s.%s' % (layer-1, block, nl_op, suffix)
+            name = 'nonlocal_block'
+            new_key = 'layer%d.%d.%s.%s.%s' % (layer-1, block, name, nl_op, suffix)
             key_map[new_key] = key
 
     state_dict = new_model.state_dict()
@@ -398,7 +324,8 @@ def convert_i3d_weights(weigths_file_path, new_model, save_model=False, new_mode
             continue
 
         data_v, pth_v = data[key_map[key]], state_dict[key]
-        assert str(tuple(data_v.shape)) == str(tuple(pth_v.shape)), 'Size Mismatch'
+        assert str(tuple(data_v.shape)) == str(tuple(pth_v.shape)), (
+            'Size Mismatch {} != {} in {}').format(data_v.shape, pth_v.shape, key)
         print('{:24s} --> {:40s} | {:21s}'.format(key_map[key], key, str(tuple(data_v.shape))))
 
     if save_model:
@@ -410,10 +337,10 @@ def convert_i3d_weights(weigths_file_path, new_model, save_model=False, new_mode
 
 if __name__ == '__main__':
     pre_trained_file = ("/media/v-pakova/New Volume1/OnlineActionRecognition/models/pre-trained/"
-                        "non-local/i3d_nonlocal_32x2_IN_pretrain_400k.pkl")
-    blank_resnet_i3d = resnet50(non_local=True)
+                        "non-local/i3d_baseline_8x8_IN_pretrain_400k.pkl")
+    blank_resnet_i3d = resnet50(non_local=True, frame_num=8)
     resnet_i3d = convert_i3d_weights(pre_trained_file, blank_resnet_i3d, save_model=True,
                                      new_model_name="../../../models/pre-trained/"
-                                     "resnet50_nl_i3d_kinetics2")
+                                     "resnet50_i3d_kinetics_8x8")
 
     print(resnet_i3d)

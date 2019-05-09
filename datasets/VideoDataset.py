@@ -48,12 +48,13 @@ class VideoRecord(object):
 
 
 class VideoDataset(data.Dataset):
-    def __init__(self, root_path, list_file, sample_frames=32,
+    def __init__(self, root_path, list_file, sample_frames=32, stride=2,
                  image_tmpl='frame_{:06d}.jpg', transform=None,
                  train_mode=True, test_clips=10):
         self.root_path = root_path
         self.list_file = list_file
         self.sample_frames = sample_frames
+        self.stride = stride
         self.image_tmpl = image_tmpl
         self.train_mode = train_mode
         if not self.train_mode:
@@ -91,11 +92,11 @@ class VideoDataset(data.Dataset):
         return offsets
 
     def _get_test_indices(self, record):
-        tick = (record.num_frames - self.sample_frames*2 + 1) / float(self.num_clips)
+        tick = (record.num_frames - self.sample_frames*self.stride + 1) / float(self.num_clips)
         sample_start_pos = np.array([int(tick * x) for x in range(self.num_clips)])
         offsets = []
         for p in sample_start_pos:
-            offsets.extend(range(p, p+self.sample_frames*2, 2))
+            offsets.extend(range(p, p+self.sample_frames*self.stride, self.stride))
 
         checked_offsets = []
         for f in offsets:

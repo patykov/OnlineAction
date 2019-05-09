@@ -19,9 +19,11 @@ parser.add_argument('--weights_file', type=str, default="/media/v-pakova/New Vol
                     "OnlineActionRecognition/models/pre-trained/resnet50_nl_i3d_kinetics.pth")
 parser.add_argument('--output_file', type=str, default=None)
 parser.add_argument('--baseline', action='store_false')
+parser.add_argument('--causal', action='store_true')
 parser.add_argument('--mode', type=str, default='test')
 parser.add_argument('--test_clips', type=int, default=10)
-parser.add_argument('--sample_frames', type=int, default=32)
+parser.add_argument('--sample_frames', type=int, default=8)
+parser.add_argument('--stride', type=int, default=8)
 parser.add_argument('--test_crops', type=int, default=1)
 parser.add_argument('--workers', default=4, type=int,
                     help='number of data loading workers (default: 4)')
@@ -35,18 +37,17 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 start = time.time()
 
 i3d_model = i3d.resnet50(non_local=args.baseline)
-i3d_model.load_state_dict(torch.load(args.weights_file))
+i3d_model.load_state_dict(torch.load(args.weights_file), strict=False)
 i3d_model.set_mode(args.mode)
 i3d_model.eval()
 # i3d_model = torch.nn.DataParallel(i3d_model)
-
 print('Loading model took {}'.format(time.time() - start))
 
 transforms = t.get_default_transforms(i3d_model.mode)
 
 data_loader = torch.utils.data.DataLoader(
         VideoDataset(args.root_data_path, args.map_file, sample_frames=args.sample_frames,
-                     image_tmpl="frame_{:06d}.jpg",
+                     image_tmpl="frame_{:06d}.jpg", stride=args.stride,
                      train_mode=False, test_clips=args.test_clips,
                      transform=transforms),
         batch_size=1, shuffle=False, num_workers=args.workers)  # , pin_memory=True)
@@ -57,13 +58,23 @@ data_gen = enumerate(data_loader, start=1)
 
 def eval_video(data):
     data = data.squeeze(0).cuda()
+    rst = i3d_model(data).cpu()
 
-    return i3d_model(data).mean(0).cpu()
+    if args.causal:
+        return [rst[:i].mean(0) for i in range(1, 11)]
+
+    else:
+        return rst.mean(0)
 
 
 if args.output_file is not None:
     with open(args.output_file, 'w') as file:
-        file.write('{:^10} | {:^20}\n'.format('Label', 'Top5 predition'))
+        if args.causal:
+            file.write('{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t\n'.format(
+                'Label', 'Top5 - 10%', 'Top5 - 20%', 'Top5 - 30%', 'Top5 - 40%', 'Top5 - 50%',
+                'Top5 - 60%', 'Top5 - 70%', 'Top5 - 80%', 'Top5 - 90%', 'Top5 - 100%'))
+        else:
+            file.write('{:^10} | {:^20}\n'.format('Label', 'Top5 predition'))
 
 score_text = ''
 video_pred = []
@@ -79,11 +90,21 @@ with torch.no_grad():
 
         rst = eval_video(data)
 
-        _, top5_pred = torch.topk(rst, 5)
+        if args.causal:
+            top5_pred = []
+            top5_str = ''
+            for j in range(10):
+                _, t5_p = torch.topk(rst[j], 5)
+                top5_pred.append(t5_p)
+                top5_str += '{}\t'.format(np.array2string(t5_p.numpy(), separator=' ')[1:-1])
+            score_text += ('{}\t{}\n').format(label[0], top5_str)
+        else:
+            _, top5_pred = torch.topk(rst, 5)
+            score_text += '{:^10} | {:^20}\n'.format(label[0], np.array2string(
+                top5_pred.numpy(), separator=', ')[1:-1])
+
         video_pred.append(top5_pred)
         video_labels.append(label[0])
-        score_text += '{:^10} | {:^20}\n'.format(label[0], np.array2string(
-            top5_pred.numpy(), separator=', ')[1:-1])
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -91,8 +112,8 @@ with torch.no_grad():
 
         if i % 10 == 0:
             print('Video {}/{} ({:.02f}%) | '
-                  'Time {batch_time.val:.2f}s ({batch_time.avg:.2f}s avg.) | '
-                  'Data {data_time.val:.2f}s ({data_time.avg:.2f}s avg.)'.format(
+                  'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
+                  'Data {data_time.val:.3f}s ({data_time.avg:.3f}s avg.)'.format(
                       i, total_num, i*100/total_num, batch_time=batch_time, data_time=data_time))
             if i % 20 == 0:
                 # Saving as the program goes in case of error
@@ -106,4 +127,7 @@ if args.output_file is not None:
     with open(args.output_file, 'a') as file:
         file.write(score_text)
 
-eu.save_metrics(video_pred, video_labels, args.output_file)
+if args.causal:
+    eu.save_causal_metrics(video_pred, video_labels, args.output_file)
+else:
+    eu.save_metrics(video_pred, video_labels, args.output_file)
