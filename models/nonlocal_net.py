@@ -1,3 +1,4 @@
+import argparse
 import pickle
 import re
 
@@ -9,32 +10,29 @@ from torch.nn import functional as F
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, time_kernel=1, space_stride=1, downsample=None,
-                 addnon=False):
+    def __init__(self, inplanes, planes, stride, downsample, temp_conv, addnon):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv3d(inplanes,
-                               planes,
-                               kernel_size=(time_kernel, 1, 1),
-                               padding=(int((time_kernel-1)/2), 0, 0),
+        self.conv1 = nn.Conv3d(inplanes, planes,
+                               kernel_size=(1 + temp_conv * 2, 1, 1),
+                               padding=(temp_conv, 0, 0),
                                bias=False)
         self.bn1 = nn.BatchNorm3d(planes)
-        self.conv2 = nn.Conv3d(planes,
-                               planes,
+        self.conv2 = nn.Conv3d(planes, planes,
                                kernel_size=(1, 3, 3),
-                               stride=(1, space_stride, space_stride),
+                               stride=(1, stride, stride),
                                padding=(0, 1, 1),
                                bias=False)
         self.bn2 = nn.BatchNorm3d(planes)
-        self.conv3 = nn.Conv3d(planes,
-                               planes * 4,
+        self.conv3 = nn.Conv3d(planes, planes * 4,
                                kernel_size=(1, 1, 1),
+                               padding=(0, 0, 0),
                                bias=False)
         self.bn3 = nn.BatchNorm3d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.addnon = addnon
         if self.addnon:
-            self.nonlocal_block = NonLocalBlock(in_channels=planes * 4, mode='embedded_gaussian')
+            self.nonlocal_block = NonLocalBlock(in_channels=planes * 4)
 
     def forward(self, x):
         residual = x
@@ -62,7 +60,8 @@ class Bottleneck(nn.Module):
 
 class I3DResNet(nn.Module):
 
-    def __init__(self, block, layers, frame_num=32, num_classes=400, non_local=True):
+    def __init__(self, block, layers, temp_conv, nonlocal_block, frame_num=32, num_classes=400,
+                 non_local=True):
         if torch.cuda.is_available():
             torch.set_default_tensor_type('torch.cuda.FloatTensor')
         self.inplanes = 64
@@ -76,54 +75,54 @@ class I3DResNet(nn.Module):
                                bias=False)
         self.bn1 = nn.BatchNorm3d(64)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool3d(kernel_size=(2, 3, 3), stride=2, padding=(0, 0, 0))
-        self.layer1 = self._make_layer_inflat(block, 64, layers[0], first_block=True)
-        self.temporalpool = nn.MaxPool3d(kernel_size=(2, 1, 1), stride=(2, 1, 1), padding=(0, 0, 0))
-        self.layer2 = self._make_layer_inflat(block, 128, layers[1], space_stride=2)
-        self.layer3 = self._make_layer_inflat(block, 256, layers[2], space_stride=2)
-        self.layer4 = self._make_layer_inflat(block, 512, layers[3], space_stride=2)
-        self.avgpool = nn.AvgPool3d((int(frame_num/8), 7, 7))
+        self.maxpool = nn.MaxPool3d(kernel_size=(temp_stride, 3, 3),
+                                    stride=(temp_stride, 2, 2),
+                                    padding=(0, 0, 0))
+        self.layer1 = self._make_layer(block, 64, layers[0], stride=1,
+                                       temp_conv=temp_conv[0],
+                                       nonlocal_block=nonlocal_block[0])
+        self.temporalpool = nn.MaxPool3d(kernel_size=(2, 1, 1),
+                                         stride=(2, 1, 1),
+                                         padding=(0, 0, 0))
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
+                                       temp_conv=temp_conv[1],
+                                       nonlocal_block=nonlocal_block[1])
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
+                                       temp_conv=temp_conv[2],
+                                       nonlocal_block=nonlocal_block[2])
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
+                                       temp_conv=temp_conv[3],
+                                       nonlocal_block=nonlocal_block[3])
+        self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
         self.avgdrop = nn.Dropout(0.5)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         self.mode = 'train'
 
-    def _make_layer_inflat(self, block, planes, blocks, space_stride=1, first_block=False):
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                m.weight = nn.init.kaiming_normal_(m.weight, mode='fan_out')
+            elif isinstance(m, nn.BatchNorm3d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def _make_layer(self, block, planes, blocks, stride, temp_conv, nonlocal_block):
         downsample = None
-        if space_stride != 1 or self.inplanes != planes * block.expansion:
+        if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
                 nn.Conv3d(self.inplanes, planes * block.expansion,
-                          kernel_size=(1, 1, 1), stride=(1, space_stride, space_stride),
-                          bias=False),
-                nn.BatchNorm3d(planes * block.expansion),
-            )
+                          kernel_size=(1, 1, 1), stride=(1, stride, stride),
+                          padding=(0, 0, 0), bias=False),
+                nn.BatchNorm3d(planes * block.expansion)
+                )
 
         layers = []
-        if blocks % 2 == 0 or first_block:
-            time_kernel = 3
-        else:
-            time_kernel = 1
-
-        # Add first block
-        layers.append(block(self.inplanes, planes, time_kernel, space_stride, downsample,
-                            addnon=False))
+        layers.append(block(self.inplanes, planes, stride, downsample, temp_conv=temp_conv[0],
+                            addnon=nonlocal_block[0]))
         self.inplanes = planes * block.expansion
-
-        if first_block:
-            for i in range(1, blocks):
-                layers.append(block(self.inplanes, planes, time_kernel))
-        elif blocks % 2 == 0:
-            time_kernel = 1
-            add_nonlocal = True
-            for i in range(1, blocks):
-                layers.append(block(self.inplanes, planes, time_kernel,
-                                    addnon=add_nonlocal if self.non_local else False))
-                time_kernel = (time_kernel + 2) % 4
-                add_nonlocal = not add_nonlocal
-        else:
-            time_kernel = 3
-            for i in range(1, blocks):
-                layers.append(block(self.inplanes, planes, time_kernel))
-                time_kernel = (time_kernel + 2) % 4
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes, stride=1, downsample=None,
+                                temp_conv=temp_conv[i],
+                                addnon=nonlocal_block[i] if self.non_local else False))
 
         return nn.Sequential(*layers)
 
@@ -145,19 +144,24 @@ class I3DResNet(nn.Module):
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
+
         x = self.layer1(x)
         x = self.temporalpool(x)
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
+
         x = self.avgpool(x)
+
         if self.mode == 'train':
             x = x.view(x.size(0), -1)
             x = self.avgdrop(x)
             x = self.fc(x)
+
         elif self.mode == 'val':
             x = x.view(x.size(0), -1)
             x = self.fc(x)
+
         elif self.mode == 'test':
             x = self.conv1x1(x)
             x = x.mean(4).mean(3).mean(2)
@@ -166,14 +170,8 @@ class I3DResNet(nn.Module):
 
 
 class NonLocalBlock(nn.Module):
-    def __init__(self, in_channels, inter_channels=None, mode='embedded_gaussian',
-                 sub_sample=True, bn_layer=True):
+    def __init__(self, in_channels, inter_channels=None, sub_sample=True, bn_layer=True):
         super(NonLocalBlock, self).__init__()
-
-        assert mode in ['embedded_gaussian', 'gaussian', 'dot_product', 'concatenation']
-
-        self.mode = mode
-        self.sub_sample = sub_sample
 
         self.in_channels = in_channels
         self.inter_channels = inter_channels
@@ -198,33 +196,27 @@ class NonLocalBlock(nn.Module):
         else:
             self.W = nn.Conv3d(in_channels=self.inter_channels, out_channels=self.in_channels,
                                kernel_size=1, stride=1, padding=0)
-            nn.init.kaiming_normal(self.W.weight)
-            nn.init.constant(self.W.bias, 0)
+            nn.init.constant_(self.W.weight, 0)
+            nn.init.constant_(self.W.bias, 0)
 
         self.theta = nn.Conv3d(in_channels=self.in_channels, out_channels=self.inter_channels,
                                kernel_size=1, stride=1, padding=0)
         self.phi = nn.Conv3d(in_channels=self.in_channels, out_channels=self.inter_channels,
                              kernel_size=1, stride=1, padding=0)
 
-        if self.mode == "embedded_gaussian":
-            self.operation_function = self._embedded_gaussian
-        else:
-            raise NotImplementedError('Non-local mode: {} not implemented!'.format(self.mode))
-
         if sub_sample:
-            self.g = nn.Sequential(self.g, nn.MaxPool3d(kernel_size=(1, 2, 2)))
-            self.phi = nn.Sequential(self.phi, nn.MaxPool3d(kernel_size=(1, 2, 2)))
+            max_pool_layer = nn.MaxPool3d(kernel_size=(1, 2, 2))
+
+            self.g = nn.Sequential(self.g, max_pool_layer)
+            self.phi = nn.Sequential(self.phi, max_pool_layer)
 
     def forward(self, x):
-        '''
-        :param x: (b, c, t, h, w)
-        :return:
-        '''
+        """
+        Embedded gaussian operation in self-attention mode.
 
-        output = self.operation_function(x)
-        return output
-
-    def _embedded_gaussian(self, x):
+        Argument:
+            x: (b, c, t, h, w)
+        """
         batch_size = x.size(0)
 
         # g=>(b, c, t, h, w)->(b, 0.5c, t, h, w)->(b, thw, 0.5c)
@@ -238,7 +230,8 @@ class NonLocalBlock(nn.Module):
         theta_x = theta_x.permute(0, 2, 1)
         phi_x = self.phi(x).view(batch_size, self.inter_channels, -1)
         f = torch.matmul(theta_x, phi_x)
-        f_div_C = F.softmax(f, dim=-1)
+        f_sc = f * (self.inter_channels**-.5)  # https://arxiv.org/pdf/1706.03762.pdf section 3.2.1
+        f_div_C = F.softmax(f_sc, dim=-1)
 
         # (b, thw, thw)dot(b, thw, 0.5c) = (b, thw, 0.5c)->(b, 0.5c, t, h, w)->(b, c, t, h, w)
         y = torch.matmul(f_div_C, g_x)
@@ -251,11 +244,20 @@ class NonLocalBlock(nn.Module):
 
 
 def resnet50(pretrained=False, **kwargs):
-    """Constructs a ResNet-50 model.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = I3DResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    temp_conv = [
+        [1, 1, 1],
+        [1, 0, 1, 0],
+        [1, 0, 1, 0, 1, 0],
+        [0, 1, 0]
+    ]
+    nonlocal_block = [
+        [0, 0, 0],
+        [0, 1, 0, 1],
+        [0, 1, 0, 1, 0, 1],
+        [0, 0, 0]
+    ]
+    model = I3DResNet(Bottleneck, [3, 4, 6, 3], temp_conv=temp_conv, nonlocal_block=nonlocal_block,
+                      **kwargs)
 
     return model
 
@@ -336,11 +338,25 @@ def convert_i3d_weights(weigths_file_path, new_model, save_model=False, new_mode
 
 
 if __name__ == '__main__':
-    pre_trained_file = ("/media/v-pakova/New Volume1/OnlineActionRecognition/models/pre-trained/"
-                        "non-local/i3d_baseline_8x8_IN_pretrain_400k.pkl")
-    blank_resnet_i3d = resnet50(non_local=True, frame_num=8)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--type', type=str, default='nonlocal')
+    parser.add_argument('--frame_num', type=int, default=32)
+    args = parser.parse_args()
+
+    assert args.type in ['baseline', 'nonlocal'], ('Type %s not available. Choose between baseline '
+                                                   'or nonlocal.' % args.type)
+    assert args.frame_num in [8, 32], ('Number of frames %d not available. Choose between 8 or 32.'
+                                       % args.frame_num)
+
+    stride = 2 if args.frame_num == 32 else 8
+
+    pre_trained_file = ('../../../models/pre-trained/non-local/'
+                        'i3d_%s_%dx%d_IN_pretrain_400k.pkl' % (args.type, args.frame_num, stride))
+    blank_resnet_i3d = resnet50(non_local=True if args.type == 'nonlocal' else False,
+                                frame_num=args.frame_num)
     resnet_i3d = convert_i3d_weights(pre_trained_file, blank_resnet_i3d, save_model=True,
-                                     new_model_name="../../../models/pre-trained/"
-                                     "resnet50_i3d_kinetics_8x8")
+                                     new_model_name='../../../models/pre-trained/'
+                                     'resnet50_%s_i3d_kinetics_%dx%d' % (args.type, args.frame_num,
+                                                                         stride))
 
     print(resnet_i3d)

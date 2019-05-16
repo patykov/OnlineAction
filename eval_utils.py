@@ -50,7 +50,7 @@ def get_accuracy(predictions, labels):
     return np.mean(cls_acc) * 100
 
 
-def get_topk_predictions(video_pred, video_labels):
+def get_top_predictions(video_pred, video_labels):
     # TOP1
     top1_pred = [p[0] for p in video_pred]
     top1_pred = [p[0].item() for p in video_pred]
@@ -66,8 +66,8 @@ def get_topk_predictions(video_pred, video_labels):
     return top1_pred, top5_pred
 
 
-def save_metrics(video_pred, video_labels, output_file):
-    top1_pred, top5_pred = get_topk_predictions(video_pred, video_labels)
+def save_metrics(video_pred, video_labels, output_file, batch_time, data_time):
+    top1_pred, top5_pred = get_top_predictions(video_pred, video_labels)
 
     cls_acc1 = get_accuracy(top1_pred, video_labels)
     report1 = classification_report(video_labels, top1_pred)
@@ -85,6 +85,9 @@ def save_metrics(video_pred, video_labels, output_file):
     with open(report_file, 'w') as file:
         file.write('Accuracy:\n')
         file.write('Top1: {:.02f}% | Top5: {:.02f}%\n'.format(cls_acc1, cls_acc5))
+        file.write('Batch Time: {batch_time.avg:.3f}s avg. | '
+                   'Data loading time: {data_time.avg:.3f}s avg.'.format(
+                       batch_time=batch_time, data_time=data_time))
         file.write('\n\n-----------------------------------------------------\n')
         file.write('Top1 classification report:\n')
         file.write(report1)
@@ -93,12 +96,12 @@ def save_metrics(video_pred, video_labels, output_file):
         file.write(report5)
 
 
-def save_causal_metrics(video_pred, video_labels, output_file):
+def save_causal_metrics(video_pred, video_labels, output_file, batch_time, data_time):
     cls_acc1 = []
     cls_acc5 = []
     for i in range(10):
         v_pred = [p[i] for p in video_pred]
-        top1_pred, top5_pred = get_topk_predictions(v_pred, video_labels)
+        top1_pred, top5_pred = get_top_predictions(v_pred, video_labels)
 
         acc1 = get_accuracy(top1_pred, video_labels)
         acc5 = get_accuracy(top5_pred, video_labels)
@@ -113,6 +116,9 @@ def save_causal_metrics(video_pred, video_labels, output_file):
     report_file = os.path.join(base, name+'_results'+ext)
 
     with open(report_file, 'w') as file:
+        file.write('Batch Time: {batch_time.avg:.3f}s avg. | '
+                   'Data loading time: {data_time.avg:.3f}s avg.\n'.format(
+                       batch_time=batch_time, data_time=data_time))
         file.write('{:10} | {:10} | {:10}\n'.format('% of video', 'Top1', 'Top5'))
         for i in range(10):
             file.write('{:10}% | {:10.02f}% | {:10.02f}%\n'.format(i*10, cls_acc1[i], cls_acc5[i]))

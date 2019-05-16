@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 
 import numpy as np
@@ -12,18 +13,18 @@ from datasets.VideoDataset import VideoDataset
 # options
 parser = argparse.ArgumentParser()
 parser.add_argument('--map_file', type=str)
-parser.add_argument('--root_data_path', type=str, default=("/media/v-pakova/New Volume1/"
+parser.add_argument('--root_data_path', type=str, default=("../../../"
                                                            "Datasets/Kinetics/400/val_frames_256"))
 parser.add_argument('--base_model', type=str, default="resnet50")
-parser.add_argument('--weights_file', type=str, default="/media/v-pakova/New Volume1/"
-                    "OnlineActionRecognition/models/pre-trained/resnet50_nl_i3d_kinetics.pth")
+parser.add_argument('--weights_file', type=str, default="/../models/"
+                    "pre-trained/resnet50_nl_i3d_kinetics.pth")
 parser.add_argument('--output_file', type=str, default=None)
 parser.add_argument('--baseline', action='store_false')
 parser.add_argument('--causal', action='store_true')
 parser.add_argument('--mode', type=str, default='test')
 parser.add_argument('--test_clips', type=int, default=10)
-parser.add_argument('--sample_frames', type=int, default=8)
-parser.add_argument('--stride', type=int, default=8)
+parser.add_argument('--sample_frames', type=int, default=32)
+parser.add_argument('--stride', type=int, default=2)
 parser.add_argument('--test_crops', type=int, default=1)
 parser.add_argument('--workers', default=4, type=int,
                     help='number of data loading workers (default: 4)')
@@ -36,11 +37,10 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 start = time.time()
 
-i3d_model = i3d.resnet50(non_local=args.baseline)
-i3d_model.load_state_dict(torch.load(args.weights_file), strict=False)
+i3d_model = i3d.resnet50(non_local=args.baseline, frame_num=args.sample_frames)
+i3d_model.load_state_dict(torch.load(args.weights_file))
 i3d_model.set_mode(args.mode)
 i3d_model.eval()
-# i3d_model = torch.nn.DataParallel(i3d_model)
 print('Loading model took {}'.format(time.time() - start))
 
 transforms = t.get_default_transforms(i3d_model.mode)
@@ -55,6 +55,8 @@ data_loader = torch.utils.data.DataLoader(
 total_num = len(data_loader.dataset)
 data_gen = enumerate(data_loader, start=1)
 
+# i3d_model = torch.nn.DataParallel(i3d_model)
+
 
 def eval_video(data):
     data = data.squeeze(0).cuda()
@@ -68,6 +70,9 @@ def eval_video(data):
 
 
 if args.output_file is not None:
+    output_dir = os.path.dirname(args.output_file)
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
     with open(args.output_file, 'w') as file:
         if args.causal:
             file.write('{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t\n'.format(
@@ -128,6 +133,6 @@ if args.output_file is not None:
         file.write(score_text)
 
 if args.causal:
-    eu.save_causal_metrics(video_pred, video_labels, args.output_file)
+    eu.save_causal_metrics(video_pred, video_labels, args.output_file, batch_time, data_time)
 else:
-    eu.save_metrics(video_pred, video_labels, args.output_file)
+    eu.save_metrics(video_pred, video_labels, args.output_file, batch_time, data_time)
