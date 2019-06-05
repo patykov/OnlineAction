@@ -127,8 +127,9 @@ class I3DResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def set_mode(self, mode):
-        self.mode = mode
+        assert mode in ['train', 'val', 'test']
 
+        self.mode = mode
         if self.mode == 'test':
             self.set_fully_conv_test()
 
@@ -207,8 +208,8 @@ class NonLocalBlock(nn.Module):
         if sub_sample:
             max_pool_layer = nn.MaxPool3d(kernel_size=(1, 2, 2))
 
-            self.g = nn.Sequential(self.g, max_pool_layer)
-            self.phi = nn.Sequential(self.phi, max_pool_layer)
+            self.g = nn.Sequential(max_pool_layer, self.g)
+            self.phi = nn.Sequential(max_pool_layer, self.phi)
 
     def forward(self, x):
         """
@@ -219,21 +220,16 @@ class NonLocalBlock(nn.Module):
         """
         batch_size = x.size(0)
 
-        # g=>(b, c, t, h, w)->(b, 0.5c, t, h, w)->(b, thw, 0.5c)
-        g_x = self.g(x).view(batch_size, self.inter_channels, -1)
-        g_x = g_x.permute(0, 2, 1)
-
-        # theta=>(b, c, t, h, w)[->(b, 0.5c, t, h, w)]->(b, thw, 0.5c)
-        # phi  =>(b, c, t, h, w)[->(b, 0.5c, t, h, w)]->(b, 0.5c, thw)
-        # f=>(b, thw, 0.5c)dot(b, 0.5c, twh) = (b, thw, thw)
         theta_x = self.theta(x).view(batch_size, self.inter_channels, -1)
         theta_x = theta_x.permute(0, 2, 1)
         phi_x = self.phi(x).view(batch_size, self.inter_channels, -1)
+        g_x = self.g(x).view(batch_size, self.inter_channels, -1)
+        g_x = g_x.permute(0, 2, 1)
+
         f = torch.matmul(theta_x, phi_x)
         f_sc = f * (self.inter_channels**-.5)  # https://arxiv.org/pdf/1706.03762.pdf section 3.2.1
         f_div_C = F.softmax(f_sc, dim=-1)
 
-        # (b, thw, thw)dot(b, thw, 0.5c) = (b, thw, 0.5c)->(b, 0.5c, t, h, w)->(b, c, t, h, w)
         y = torch.matmul(f_div_C, g_x)
         y = y.permute(0, 2, 1).contiguous()
         y = y.view(batch_size, self.inter_channels, *x.size()[2:])
@@ -274,7 +270,7 @@ def convert_i3d_weights(weigths_file_path, new_model, save_model=False, new_mode
     m2num = dict(zip('abc', [1, 2, 3]))
     suffix_dict = {
         'b': 'bias', 'w': 'weight', 's': 'weight', 'rm': 'running_mean', 'riv': 'running_var'}
-    nonlocal_dict = {'out': 'W.0', 'bn': 'W.1', 'phi': 'phi.0', 'g': 'g.0', 'theta': 'theta'}
+    nonlocal_dict = {'out': 'W.0', 'bn': 'W.1', 'phi': 'phi.1', 'g': 'g.1', 'theta': 'theta'}
 
     key_map = {'conv1.weight': 'conv1_w',
                'bn1.weight': 'res_conv1_bn_s',

@@ -21,7 +21,7 @@ parser.add_argument('--weights_file', type=str, default="/../models/"
 parser.add_argument('--output_file', type=str, default=None)
 parser.add_argument('--baseline', action='store_false')
 parser.add_argument('--causal', action='store_true')
-parser.add_argument('--mode', type=str, default='test')
+parser.add_argument('--mode', type=str, default='val')
 parser.add_argument('--test_clips', type=int, default=10)
 parser.add_argument('--sample_frames', type=int, default=32)
 parser.add_argument('--stride', type=int, default=2)
