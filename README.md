@@ -34,14 +34,14 @@ python eval_model.py --map_file [path_to_map_file] --root_data_path [path_to_vid
 ## Results
 | <sub>pre-trained weights file</sub> | <sub>input frames</sub> | <sub>non-local?</sub> | <sub>fully-conv?</sub> | <sub>top1 / top5</sub> | <sub>reported by authors</sub> |
 | ----------------------------------- | ----------------------- | --------------------- | ---------------------- | ----------------------- |--------------------------------|
-| <sub>i3d_baseline_32x2_IN_pretrain_400k.pkl</sub> | 32 |  -  |  -  | 72.3 / 90.5 | <sub>73.3 / 90.7 (in paper)</sub> |
-| <sub>i3d_baseline_32x2_IN_pretrain_400k.pkl</sub> | 32 |  -  | Yes | 72.4 / 90.3 | <sub>73.3 / 90.7 (in paper)</sub> |
-| <sub>i3d_nonlocal_32x2_IN_pretrain_400k.pkl</sub> | 32 | Yes |  -  | 73.9 / 91.2 | <sub>74.9 / 91.6 (in paper)</sub> |
-| <sub>i3d_nonlocal_32x2_IN_pretrain_400k.pkl</sub> | 32 | Yes | Yes | 74.0 / 91.3 | <sub>74.9 / 91.6 (in paper)</sub> |
-| <sub>i3d_baseline_8x8_IN_pretrain_400k.pkl</sub>  |  8 |  -  |  -  | 67.9 / 87.7 | <sub>73.4 / 90.9 (in github page)</sub> |
-| <sub>i3d_baseline_8x8_IN_pretrain_400k.pkl</sub>  |  8 |  -  | Yes | 68.7 / 87.9 | <sub>73.4 / 90.9 (in github page)</sub> |
-| <sub>i3d_nonlocal_8x8_IN_pretrain_400k.pkl</sub>  |  8 | Yes |  -  | 70.3 / 89.2 | <sub>74.7 / 91.6 (in github page)</sub> |
-| <sub>i3d_nonlocal_8x8_IN_pretrain_400k.pkl</sub>  |  8 | Yes | Yes | 70.8 / 89.3 | <sub>74.7 / 91.6 (in github page)</sub> |
+| <sub>i3d_baseline_32x2_IN_pretrain_400k.pkl</sub> | 32 |  -  |  -  | 72.3 / 90.5 | - |
+| <sub>i3d_baseline_32x2_IN_pretrain_400k.pkl</sub> | 32 |  -  | Yes | 73.0 / 90.8 | <sub>73.3 / 90.7 (in paper)</sub> |
+| <sub>i3d_nonlocal_32x2_IN_pretrain_400k.pkl</sub> | 32 | Yes |  -  | 73.9 / 91.2 | - |
+| <sub>i3d_nonlocal_32x2_IN_pretrain_400k.pkl</sub> | 32 | Yes | Yes | 74.4 / 91.6 | <sub>74.9 / 91.6 (in paper)</sub> |
+| <sub>i3d_baseline_8x8_IN_pretrain_400k.pkl</sub>  |  8 |  -  |  -  | 72.1 / 90.4 | - |
+| <sub>i3d_baseline_8x8_IN_pretrain_400k.pkl</sub>  |  8 |  -  | Yes | 72.9 / 90.7 | <sub>73.4 / 90.9 (in github page)</sub> |
+| <sub>i3d_nonlocal_8x8_IN_pretrain_400k.pkl</sub>  |  8 | Yes |  -  | 73.8 / 91.1 | - |
+| <sub>i3d_nonlocal_8x8_IN_pretrain_400k.pkl</sub>  |  8 | Yes | Yes | 74.3 / 91.5 | <sub>74.7 / 91.6 (in github page)</sub> |
 
 ## Problems
 - Models with 8x8 input achieve lower results than expected.
