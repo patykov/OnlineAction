@@ -43,8 +43,6 @@ python eval_model.py --map_file [path_to_map_file] --root_data_path [path_to_vid
 | <sub>i3d_nonlocal_8x8_IN_pretrain_400k.pkl</sub>  |  8 | Yes |  -  | 73.8 / 91.1 | - |
 | <sub>i3d_nonlocal_8x8_IN_pretrain_400k.pkl</sub>  |  8 | Yes | Yes | 74.3 / 91.5 | <sub>74.7 / 91.6 (in github page)</sub> |
 
-## Problems
-- Models with 8x8 input achieve lower results than expected.
 
 ## References:
 - [https://github.com/facebookresearch/video-nonlocal-net](https://github.com/facebookresearch/video-nonlocal-net)
