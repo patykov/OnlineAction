@@ -6,11 +6,14 @@ from PIL import Image
 
 
 class GroupRandomCrop(object):
+
     def __init__(self, size):
-        self.size = size
+        if isinstance(size, int):
+            self.size = (int(size), int(size))
+        else:
+            self.size = size
 
     def __call__(self, img_group):
-
         w, h = img_group[0].size
         th, tw = self.size
 
@@ -20,13 +23,23 @@ class GroupRandomCrop(object):
         y1 = random.randint(0, h - th)
 
         for img in img_group:
-            assert(img.size == w and img.size == h)
+            assert(img.size[0] == w and img.size[1] == h)
             if w == tw and h == th:
                 out_images.append(img)
             else:
                 out_images.append(img.crop((x1, y1, x1 + tw, y1 + th)))
 
         return out_images
+
+
+class GroupFullyConv(object):
+
+    def __init__(self, size):
+        self.worker = GroupRandomCrop(size)
+
+    def __call__(self, img_group):
+        crops = [self.worker(img_group) for _ in range(3)]
+        return [item for sublist in crops for item in sublist]
 
 
 class GroupCenterCrop(object):
@@ -69,8 +82,7 @@ class GroupTenCrop(object):
     def __call__(self, img_group):
         cropped_imgs = [self.worker(img) for img in img_group]
         reordered_imgs = [[group[i] for group in cropped_imgs] for i in range(10)]
-        new_img_group = [img for sublist in reordered_imgs for img in sublist]
-        return new_img_group
+        return [img for sublist in reordered_imgs for img in sublist]
 
 
 class GroupRandomHorizontalFlip(object):
@@ -123,7 +135,8 @@ def get_default_transforms(mode):
     elif mode == 'test':
         cropping = torchvision.transforms.Compose([
             GroupResize(256),
-            ConditionedGroupCenterCrop(max_size=808)
+            GroupFullyConv(256)
+            # ConditionedGroupCenterCrop(max_size=808)
         ])
     elif mode == 'train':
         cropping = torchvision.transforms.Compose([

@@ -1,44 +1,6 @@
 import argparse
 import os
 
-import cv2
-
-
-def extract_frames(dir_path, output_path):
-    # Output dataset directory
-    if not os.path.exists(output_path):
-        os.mkdir(output_path)
-
-    actions = sorted(os.listdir(dir_path))
-    for action in actions:
-        print(action)
-        action_dir = os.path.join(dir_path, action)
-        action_output_dir = os.path.join(output_path, action)
-
-        # Action directory
-        if not os.path.exists(action_output_dir):
-            os.mkdir(action_output_dir)
-
-        videos = os.listdir(action_dir)
-        for video in videos:
-            video_path = os.path.join(action_dir, video)
-            video_output_dir = os.path.join(action_output_dir, video.split('.')[0])
-
-            # Video directory
-            if not os.path.exists(video_output_dir):
-                os.mkdir(video_output_dir)
-
-            frameNum = 0
-            cam = cv2.VideoCapture(video_path)
-            success, image = cam.read()
-            while success:
-                success, image = cam.read()
-                if success:
-                    cv2.imwrite(os.path.join(video_output_dir, 'frame_{:06d}.jpg'.format(
-                        frameNum)), image)
-                    frameNum += 1
-    print('Done!!')
-
 
 def create_labels_file(dir_path, output_path):
     classes = sorted(os.listdir(dir_path))
@@ -59,22 +21,7 @@ def load_labels_file(file_path):
     return classes
 
 
-def create_videos_list(dir_path, file_path, classes_file):
-    classes = load_labels_file(classes_file)
-    files_text = ''
-    for c_name, c_id in classes.items():
-        class_path = os.path.join(dir_path, c_name)
-        videos = os.listdir(class_path)
-        files_text += ''.join(['{} {} {}\n'.format(
-            c_id,
-            os.path.join(c_name, v),
-            len(os.listdir(os.path.join(class_path, v)))) for v in videos])
-
-    with open(file_path, 'w') as file:
-        file.write(files_text)
-
-
-def create_video_clips_list(dir_path, file_path, classes_file):
+def create_video_list(dir_path, file_path, classes_file):
     classes = load_labels_file(classes_file)
     files_text = ''
     for c_name, c_id in classes.items():
@@ -105,4 +52,4 @@ if __name__ == '__main__':
     # Create clips list file
     list_file = os.path.join(os.path.dirname(args.dir_path),
                              os.path.basename(args.dir_path) + '_list.txt')
-    create_video_clips_list(args.dir_path, list_file, classes_file)
+    create_video_list(args.dir_path, list_file, classes_file)
