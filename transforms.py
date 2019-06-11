@@ -121,35 +121,3 @@ class GroupToTensorStack(object):
 
     def __call__(self, img_group):
         return torch.stack([torchvision.transforms.ToTensor()(img)*255 for img in img_group], dim=1)
-
-
-def get_default_transforms(mode):
-    input_mean = [114.75, 114.75, 114.75]  # [0.485, 0.456, 0.406] -> 114.75 / 255
-    input_std = [57.375, 57.375, 57.375]  # [0.229, 0.224, 0.225] --> 57.375 / 255
-
-    if mode == 'val':
-        cropping = torchvision.transforms.Compose([
-            GroupResize(256),
-            GroupCenterCrop(224)
-        ])
-    elif mode == 'test':
-        cropping = torchvision.transforms.Compose([
-            GroupResize(256),
-            GroupFullyConv(256)
-            # ConditionedGroupCenterCrop(max_size=808)
-        ])
-    elif mode == 'train':
-        cropping = torchvision.transforms.Compose([
-            GroupResize(256),
-            GroupRandomCrop(224)
-        ])
-    else:
-        raise ValueError('Mode {} does not exist. Choose between: val, test or train.'.format(mode))
-
-    transforms = torchvision.transforms.Compose([
-            cropping,
-            GroupToTensorStack(),
-            GroupNormalize(mean=input_mean, std=input_std)
-        ])
-
-    return transforms
