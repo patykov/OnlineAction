@@ -24,7 +24,6 @@ parser.add_argument('--causal', action='store_true')
 parser.add_argument('--mode', type=str, default='val')
 parser.add_argument('--test_clips', type=int, default=10)
 parser.add_argument('--sample_frames', type=int, default=32)
-parser.add_argument('--stride', type=int, default=2)
 parser.add_argument('--test_crops', type=int, default=1)
 parser.add_argument('--workers', default=4, type=int,
                     help='number of data loading workers (default: 4)')
@@ -45,9 +44,10 @@ print('Loading model took {}'.format(time.time() - start))
 
 transforms = t.get_default_transforms(i3d_model.mode)
 
+stride = 2 if args.sample_frames == 32 else 8
 data_loader = torch.utils.data.DataLoader(
         VideoDataset(args.root_data_path, args.map_file, sample_frames=args.sample_frames,
-                     image_tmpl="frame_{:06d}.jpg", stride=args.stride,
+                     image_tmpl="frame_{:06d}.jpg", stride=stride,
                      train_mode=False, test_clips=args.test_clips,
                      transform=transforms),
         batch_size=1, shuffle=False, num_workers=args.workers)  # , pin_memory=True)
