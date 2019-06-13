@@ -120,4 +120,18 @@ class GroupResize(object):
 class GroupToTensorStack(object):
 
     def __call__(self, img_group):
-        return torch.stack([torchvision.transforms.ToTensor()(img)*255 for img in img_group], dim=1)
+        return torch.stack([torchvision.transforms.ToTensor()(img) for img in img_group], dim=1)
+
+
+class GroupRandomResize(object):
+
+    def __init__(self, min_size, max_size):
+        self.min = min_size
+        self.max = max_size
+
+    def __call__(self, img_group):
+
+        size = random.randint(self.min, self.max)
+        worker = torchvision.transforms.Resize(size)
+
+        return [worker(img) for img in img_group]

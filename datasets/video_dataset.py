@@ -8,12 +8,13 @@ from PIL import Image
 
 
 class VideoRecord(object):
-    def __init__(self, video_path):
+    def __init__(self, video_path, label):
         self.path = video_path
         self.video = cv2.VideoCapture(self.path)
-        self.num_frames = self.get_num_frames()
+        self.num_frames = self._get_num_frames()
+        self.label = label
 
-    def get_num_frames(self):
+    def _get_num_frames(self):
         count = 0
         success, frame = self.video.read()
         while(success):
@@ -57,6 +58,10 @@ class VideoDataset(data.Dataset):
         mode: Set the dataset mode as 'train', 'val' or 'test'.
         transform: A function that takes in an PIL image and returns a transformed version.
     """
+
+    input_mean = [0.485, 0.456, 0.406]
+    input_std = [0.229, 0.224, 0.225]
+
     def __init__(self, root_path, list_file, sample_frames=32, stride=2, transform=None,
                  mode='train'):
         self.root_path = root_path
@@ -77,13 +82,12 @@ class VideoDataset(data.Dataset):
         Argument:
             list_file : File that contains each video relative path and its annotation
         Returns:
-            video_list : Object that can be indexed (video_list[id]) returning a tuple
-                         (label, video_path) and returns the total number of videos when
-                         len(video_list) is called. Just like a list of tuples.
+            video_list : List of the videos relative path and their labels in the format:
+                        (label, video_path).
         """
         return None
 
-    def _sample_indices(self, record):
+    def _get_train_indices(self, record):
         expanded_sample_length = self.sample_frames * self.stride
         if record.num_frames >= expanded_sample_length:
             start_pos = randint(record.num_frames - expanded_sample_length + 1)
@@ -99,20 +103,34 @@ class VideoDataset(data.Dataset):
 
     def _get_test_indices(self, record):
         """
-            Implemented by each child dataset.
         Argument:
             record : VideoRecord object
         Returns:
             offsets : List of image indices to be loaded
         """
-        return None
+        tick = (record.num_frames - self.sample_frames*self.stride + 1) / float(self.num_clips)
+        sample_start_pos = np.array([int(tick * x) for x in range(self.num_clips)])
+        offsets = []
+        for p in sample_start_pos:
+            offsets.extend(range(p, p+self.sample_frames*self.stride, self.stride))
+
+        checked_offsets = []
+        for f in offsets:
+            new_f = int(f)
+            if new_f < 0:
+                new_f = 0
+            elif new_f >= record.num_frames:
+                new_f = record.num_frames - 1
+            checked_offsets.append(new_f)
+
+        return checked_offsets
 
     def __getitem__(self, index):
         label, video_path = self.video_list[index]
-        record = VideoRecord(os.path.join(self.root_path, video_path))
+        record = VideoRecord(os.path.join(self.root_path, video_path), label)
 
         if self.mode == 'train':
-            segment_indices = self._sample_indices(record)
+            segment_indices = self._get_train_indices(record)
             process_data = self.get(record, segment_indices)
             while process_data is None:
                 index = randint(0, len(self.video_list) - 1)
@@ -127,7 +145,7 @@ class VideoDataset(data.Dataset):
         data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
         data = data.permute(1, 0, 2, 3, 4).contiguous()
 
-        return data, int(label)
+        return data, label
 
     def get(self, record, indices):
         uniq_imgs = {}

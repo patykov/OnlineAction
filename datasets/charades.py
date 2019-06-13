@@ -1,18 +1,19 @@
+import csv
 import os
 
 import numpy as np
+import torch
 import torch.utils.data as data
 import torchvision
 from numpy.random import randint
 
 import transforms as t
-from log_tools import kinetics_log
 
 from .video_dataset import VideoRecord
 
 
-class Kinetics(data.Dataset):
-    """ Kinetics-400 Dataset.
+class Charades(data.Dataset):
+    """ Charades Dataset.
     Args:
         root_path: Full path to the dataset videos directory.
         list_file: Full path to the file that lists the videos to be considered (train, val, test)
@@ -23,20 +24,19 @@ class Kinetics(data.Dataset):
             with a stride of 8 (8x8).)
         mode: Set the dataset mode as 'train', 'val' or 'test'.
         transform: A function that takes in an PIL image and returns a transformed version.
-        test_clips: Number of clips to be evenly sample from each full-length video for evaluation.
-        causal: Bool to set the type of evaluation.
     """
     input_mean = [0.485, 0.456, 0.406]
     input_std = [0.229, 0.224, 0.225]
+    FPS, GAP, testGAP = 24, 4, 25
+    num_classes = 157
 
     def __init__(self, root_path, list_file, sample_frames=32, transform=None,
-                 mode='train', test_clips=10, causal=False):
+                 mode='train', test_clips=10):
         self.root_path = root_path
         self.sample_frames = sample_frames
         self.stride = 2 if self.sample_frames == 32 else 8
         self.mode = mode
         self.test_clips = test_clips
-        self.causal = causal
 
         if transform is not None:
             self.transform = transform
@@ -50,9 +50,24 @@ class Kinetics(data.Dataset):
         Argument:
             list_file : File that contains each video relative path and its annotation
         Returns:
-            List of the videos relative path and their labels in the format: [label, video_path].
+            video_list: List of the videos relative path and their labels in the format:
+                        [label, video_path].
         """
-        return [x.strip().split(' ') for x in open(list_file)]
+        video_list = []
+        with open(list_file) as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                vid = row['id']
+                actions = row['actions']
+                if actions == '':
+                    actions = []
+                else:
+                    actions = [a.split(' ') for a in actions.split(';')]
+                    actions = [{'class': x, 'start': float(
+                        y), 'end': float(z)} for x, y, z in actions]
+                video_list.append([actions, vid])
+
+        return video_list
 
     def _get_train_indices(self, record):
         expanded_sample_length = self.sample_frames * self.stride
@@ -66,7 +81,13 @@ class Kinetics(data.Dataset):
             offsets = np.sort(randint(record.num_frames, size=self.sample_frames))
 
         offsets = [int(v) for v in offsets]
-        return offsets
+
+        target = torch.IntTensor(157).zero_()
+        for frame in offsets:
+            for l in record.label:
+                if l['start'] < frame/float(self.FPS) < l['end']:
+                    target[int(l['class'][1:])] = 1
+        return offsets, target
 
     def _get_test_indices(self, record):
         """
@@ -74,13 +95,14 @@ class Kinetics(data.Dataset):
             record : VideoRecord object
         Returns:
             offsets : List of image indices to be loaded
+            targets: List of
         """
         tick = (record.num_frames - self.sample_frames*self.stride + 1) / float(self.test_clips)
         sample_start_pos = np.array([int(tick * x) for x in range(self.test_clips)])
         offsets = []
         for p in sample_start_pos:
             offsets.extend(range(p, p+self.sample_frames*self.stride, self.stride))
-
+        print(record.num_frames, self.sample_frames, self.stride, tick, sample_start_pos)
         checked_offsets = []
         for f in offsets:
             new_f = int(f)
@@ -90,20 +112,24 @@ class Kinetics(data.Dataset):
                 new_f = record.num_frames - 1
             checked_offsets.append(new_f)
 
-        return checked_offsets
+        target = torch.IntTensor(157).zero_()
+        for l in record.label:
+            target[int(l['class'][1:])] = 1
+
+        return checked_offsets, target
 
     def __getitem__(self, index):
         label, video_path = self.video_list[index]
-        record = VideoRecord(os.path.join(self.root_path, video_path), label)
+        record = VideoRecord(os.path.join(self.root_path, video_path+'.mp4'), label)
 
         if self.mode == 'train':
-            segment_indices = self._get_train_indices(record)
+            segment_indices, target = self._get_train_indices(record)
             process_data = self.get(record, segment_indices)
             while process_data is None:
                 index = randint(0, len(self.video_list) - 1)
-                process_data, label = self.__getitem__(index)
+                process_data, target = self.__getitem__(index)
         else:
-            segment_indices = self._get_test_indices(record)
+            segment_indices, target = self._get_test_indices(record)
             process_data = self.get(record, segment_indices)
             if process_data is None:
                 raise ValueError('sample indices:', record.path, segment_indices)
@@ -112,7 +138,7 @@ class Kinetics(data.Dataset):
         data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
         data = data.permute(1, 0, 2, 3, 4).contiguous()
 
-        return data, record.label
+        return data, target
 
     def get(self, record, indices):
         uniq_id = np.unique(indices)
@@ -160,6 +186,3 @@ class Kinetics(data.Dataset):
             ])
 
         return transforms
-
-    def set_log(self, output_file, causal):
-        return kinetics_log(output_file, causal)

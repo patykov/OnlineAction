@@ -6,7 +6,6 @@ import torch.nn.parallel
 import metrics as m
 import models.nonlocal_net as i3d
 from datasets.kinetics import Kinetics
-from log_tools import kinetics_log
 
 # options
 parser = argparse.ArgumentParser()
@@ -20,6 +19,7 @@ parser.add_argument('--output_file', type=str, default=None)
 parser.add_argument('--baseline', action='store_false')
 parser.add_argument('--causal', action='store_true')
 parser.add_argument('--mode', type=str, default='val')
+parser.add_argument('--dataset', type=str, default='kinetics')
 parser.add_argument('--test_clips', type=int, default=10)
 parser.add_argument('--sample_frames', type=int, default=32)
 parser.add_argument('--workers', default=4, type=int,
@@ -37,7 +37,8 @@ i3d_model = i3d.resnet50(non_local=args.baseline, frame_num=args.sample_frames)
 i3d_model.load_state_dict(torch.load(args.weights_file))
 i3d_model.set_mode(args.mode)
 i3d_model.eval()
-print('Loading model took {}'.format(time.time() - start))
+load_model_time = time.time()
+print('Loading model took {}'.format(load_model_time - start))
 
 dataset = Kinetics(args.root_data_path, args.map_file, sample_frames=args.sample_frames,
                    mode=args.mode, test_clips=args.test_clips, causal=args.causal)
@@ -46,6 +47,7 @@ data_loader = torch.utils.data.DataLoader(
 
 total_num = len(data_loader.dataset)
 data_gen = enumerate(data_loader, start=1)
+print('Loading dataset took {}'.format(time.time() - load_model_time))
 
 # i3d_model = torch.nn.DataParallel(i3d_model)
 
@@ -61,7 +63,7 @@ def eval_video(data):
         return rst.mean(0)
 
 
-log = kinetics_log(args.output_file, args.causal)
+log = dataset.set_log(args.output_file, args.causal)
 
 batch_time = m.AverageMeter()
 data_time = m.AverageMeter()
