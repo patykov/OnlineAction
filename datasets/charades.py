@@ -8,6 +8,7 @@ import torchvision
 from numpy.random import randint
 
 import transforms as t
+from log_tools.charades_log import CharadesLog
 
 from .video_dataset import VideoRecord
 
@@ -31,30 +32,30 @@ class Charades(data.Dataset):
     num_classes = 157
 
     def __init__(self, root_path, list_file, sample_frames=32, transform=None,
-                 mode='train', test_clips=10):
+                 mode='train', test_clips=25, causal=False):
         self.root_path = root_path
+        self.list_file = list_file
         self.sample_frames = sample_frames
         self.stride = 2 if self.sample_frames == 32 else 8
         self.mode = mode
         self.test_clips = test_clips
+        self.causal = causal
 
         if transform is not None:
             self.transform = transform
         else:
             self.transform = self.default_transforms()
 
-        self.video_list = self._parse_list(list_file)
+        self.video_list = self._parse_list()
 
-    def _parse_list(self, list_file):
+    def _parse_list(self):
         """
-        Argument:
-            list_file : File that contains each video relative path and its annotation
         Returns:
             video_list: List of the videos relative path and their labels in the format:
                         [label, video_path].
         """
         video_list = []
-        with open(list_file) as f:
+        with open(self.list_file) as f:
             reader = csv.DictReader(f)
             for row in reader:
                 vid = row['id']
@@ -95,28 +96,21 @@ class Charades(data.Dataset):
             record : VideoRecord object
         Returns:
             offsets : List of image indices to be loaded
-            targets: List of
         """
-        tick = (record.num_frames - self.sample_frames*self.stride + 1) / float(self.test_clips)
-        sample_start_pos = np.array([int(tick * x) for x in range(self.test_clips)])
+        sample_start_pos = np.linspace(
+            self.sample_frames*self.stride, record.num_frames-1, self.test_clips, dtype=int)
         offsets = []
         for p in sample_start_pos:
-            offsets.extend(range(p, p+self.sample_frames*self.stride, self.stride))
-        print(record.num_frames, self.sample_frames, self.stride, tick, sample_start_pos)
-        checked_offsets = []
-        for f in offsets:
-            new_f = int(f)
-            if new_f < 0:
-                new_f = 0
-            elif new_f >= record.num_frames:
-                new_f = record.num_frames - 1
-            checked_offsets.append(new_f)
+            offsets.extend(np.linspace(
+                max(p-self.sample_frames*self.stride + self.stride, 0),
+                min(p, record.num_frames-1),
+                self.sample_frames, dtype=int))
 
         target = torch.IntTensor(157).zero_()
         for l in record.label:
             target[int(l['class'][1:])] = 1
 
-        return checked_offsets, target
+        return offsets, target
 
     def __getitem__(self, index):
         label, video_path = self.video_list[index]
@@ -138,7 +132,7 @@ class Charades(data.Dataset):
         data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
         data = data.permute(1, 0, 2, 3, 4).contiguous()
 
-        return data, target
+        return data, target if self.mode == 'train' else video_path
 
     def get(self, record, indices):
         uniq_id = np.unique(indices)
@@ -186,3 +180,6 @@ class Charades(data.Dataset):
             ])
 
         return transforms
+
+    def set_log(self, output_file):
+        return CharadesLog(self.list_file, output_file, self.causal, self.test_clips)

@@ -235,7 +235,12 @@ class NonLocalBlock(nn.Module):
         return z
 
 
-def resnet50(pretrained=False, **kwargs):
+def resnet50(weights_file=None, mode='train', dataset='kinetics', **kwargs):
+    assert mode in ['train', 'test', 'val'], (
+        'Mode {} does not exist. Choose between "train, "val" or "test".'.format(mode))
+    assert dataset in ['kinetics', 'charades'], (
+        'Dataset {} not available. Choose between "kinetics" or "charades".'.format(dataset))
+
     temp_conv = [
         [1, 1, 1],
         [1, 0, 1, 0],
@@ -248,7 +253,17 @@ def resnet50(pretrained=False, **kwargs):
         [0, 1, 0, 1, 0, 1],
         [0, 0, 0]
     ]
+
+    num_classes = {
+        'kinetics': 400,
+        'charades': 157
+    }
+
     model = I3DResNet(Bottleneck, [3, 4, 6, 3], temp_conv=temp_conv, nonlocal_block=nonlocal_block,
-                      **kwargs)
+                      num_classes=num_classes[dataset], **kwargs)
+
+    if weights_file is not None:
+        model.load_state_dict(torch.load(weights_file))
+    model.set_mode(mode)
 
     return model

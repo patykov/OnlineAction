@@ -6,7 +6,7 @@ import torchvision
 from numpy.random import randint
 
 import transforms as t
-from log_tools import kinetics_log
+from log_tools.kinetics_log import KineticsLog
 
 from .video_dataset import VideoRecord
 
@@ -75,22 +75,16 @@ class Kinetics(data.Dataset):
         Returns:
             offsets : List of image indices to be loaded
         """
-        tick = (record.num_frames - self.sample_frames*self.stride + 1) / float(self.test_clips)
-        sample_start_pos = np.array([int(tick * x) for x in range(self.test_clips)])
+        sample_start_pos = np.linspace(
+            self.sample_frames*self.stride, record.num_frames-1, self.test_clips, dtype=int)
         offsets = []
         for p in sample_start_pos:
-            offsets.extend(range(p, p+self.sample_frames*self.stride, self.stride))
+            offsets.extend(np.linspace(
+                max(p-self.sample_frames*self.stride + self.stride, 0),
+                min(p, record.num_frames-1),
+                self.sample_frames, dtype=int))
 
-        checked_offsets = []
-        for f in offsets:
-            new_f = int(f)
-            if new_f < 0:
-                new_f = 0
-            elif new_f >= record.num_frames:
-                new_f = record.num_frames - 1
-            checked_offsets.append(new_f)
-
-        return checked_offsets
+        return offsets
 
     def __getitem__(self, index):
         label, video_path = self.video_list[index]
@@ -112,7 +106,7 @@ class Kinetics(data.Dataset):
         data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
         data = data.permute(1, 0, 2, 3, 4).contiguous()
 
-        return data, record.label
+        return data, int(record.label)
 
     def get(self, record, indices):
         uniq_id = np.unique(indices)
@@ -161,5 +155,5 @@ class Kinetics(data.Dataset):
 
         return transforms
 
-    def set_log(self, output_file, causal):
-        return kinetics_log(output_file, causal)
+    def set_log(self, output_file):
+        return KineticsLog(output_file, self.causal, self.test_clips)
