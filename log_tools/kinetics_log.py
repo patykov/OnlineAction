@@ -9,12 +9,11 @@ from metric_tools.kinetics_classify import save, save_causal
 
 class KineticsLog(object):
 
-    default_log_path = os.path.join(os.path.dirname(__file__), 'outputs', 'eval_kinetics_log.txt')
+    default_log_path = os.path.join(
+        os.path.dirname(__file__), '..', 'outputs', 'eval_kinetics_log.txt')
 
     def __init__(self, output_file=None, causal=False, test_clips=10):
-        if output_file is None:
-            output_file = KineticsLog.default_log_path
-        self.output_file = output_file
+        self.output_file = output_file if output_file else KineticsLog.default_log_path
         self.causal = causal
         self.test_clips = test_clips
         self.text = ''

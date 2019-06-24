@@ -10,8 +10,8 @@ import models.nonlocal_net as i3d
 # options
 parser = argparse.ArgumentParser()
 parser.add_argument('--map_file', type=str)
-parser.add_argument('--root_data_path', type=str, default=("../../../"
-                                                           "Datasets/Kinetics/400/val_frames_256"))
+parser.add_argument('--root_data_path', type=str,
+                    help="Full path to the videos directory")
 parser.add_argument('--base_model', type=str, default="resnet50")
 parser.add_argument('--weights_file', type=str, default=None)
 parser.add_argument('--output_file', type=str, default=None)
@@ -19,9 +19,10 @@ parser.add_argument('--baseline', action='store_false')
 parser.add_argument('--causal', action='store_true')
 parser.add_argument('--mode', type=str, default='val')
 parser.add_argument('--dataset', type=str, default='kinetics')
-parser.add_argument('--sample_frames', type=int, default=32)
+parser.add_argument('--sample_frames', type=int, default=32,
+                    help='Number of frames to be sampled in the input.')
 parser.add_argument('--workers', default=4, type=int,
-                    help='number of data loading workers (default: 4)')
+                    help='Number of workers on the data loading subprocess.')
 
 args = parser.parse_args()
 assert args.mode in ['test', 'val'], ('Mode {} does not exist. Choose between "val" or "test" for'

@@ -9,12 +9,11 @@ from metric_tools.charades_classify import save
 
 class CharadesLog(object):
 
-    default_log_path = os.path.join(os.path.dirname(__file__), 'outputs', 'eval_charades_log.txt')
+    default_log_path = os.path.join(
+        os.path.dirname(__file__), '..', 'outputs', 'eval_charades_log.txt')
 
     def __init__(self, gt_file, output_file=None, causal=False, test_clips=10):
-        if output_file is None:
-            output_file = CharadesLog.default_log_path
-        self.output_file = output_file
+        self.output_file = output_file if output_file else CharadesLog.default_log_path
         self.gt_file = gt_file
         self.causal = causal
         self.test_clips = test_clips
@@ -62,4 +61,4 @@ class CharadesLog(object):
         if self.causal:
             raise NotImplementedError
         else:
-            save(self.output_file, self.gt_file, results_file)
+            save(self.output_file, self.gt_file, results_file, batch_time, data_time)

@@ -116,12 +116,18 @@ def load_charades(gt_path):
     return gt_ids, gt_classes
 
 
-def save(log_file, gt_file, output_file):
+def save(log_file, gt_file, output_file, batch_time, data_time):
     mAP, wAP, ap = charades_v1_classify(log_file, gt_file)
-    print(sum(wAP), sum(ap))
+
     with open(output_file, 'w') as file:
         file.write('### MAP ### \n')
         file.write('{:.5f}'.format(mAP))
+
+        if batch_time and data_time:
+            file.write('\n\n### Eval Time ###\n')
+            file.write('Batch Time: {batch_time.avg:.3f}s avg. | '
+                       'Data loading time: {data_time.avg:.3f}s avg.\n'.format(
+                        batch_time=batch_time, data_time=data_time))
 
         file.write('\n\n{:5} | {:10} | {:10}\n'.format(
             'class', 'avg. prec.', 'weighted avg. prec.'))
