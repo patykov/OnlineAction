@@ -28,10 +28,13 @@ class Kinetics(data.Dataset):
     """
     input_mean = [0.485, 0.456, 0.406]
     input_std = [0.229, 0.224, 0.225]
+    num_classes = 400
+    multi_label = False
 
     def __init__(self, root_path, list_file, sample_frames=32, transform=None,
                  mode='train', test_clips=10, causal=False):
         self.root_path = root_path
+        self.list_file = list_file
         self.sample_frames = sample_frames
         self.stride = 2 if self.sample_frames == 32 else 8
         self.mode = mode
@@ -43,16 +46,16 @@ class Kinetics(data.Dataset):
         else:
             self.transform = self.default_transforms()
 
-        self.video_list = self._parse_list(list_file)
+        self.video_list = self._parse_list()
 
-    def _parse_list(self, list_file):
+    def _parse_list(self):
         """
         Argument:
             list_file : File that contains each video relative path and its annotation
         Returns:
             List of the videos relative path and their labels in the format: [label, video_path].
         """
-        return [x.strip().split(' ') for x in open(list_file)]
+        return [x.strip().split(' ') for x in open(self.list_file)]
 
     def _get_train_indices(self, record):
         expanded_sample_length = self.sample_frames * self.stride
@@ -157,3 +160,16 @@ class Kinetics(data.Dataset):
 
     def set_log(self, output_file):
         return KineticsLog(output_file, self.causal, self.test_clips)
+
+    def __repr__(self):
+        fmt_str = 'Dataset ' + self.__class__.__name__ + '\n'
+        fmt_str += '    Number of samples: {}\n'.format(self.__len__())
+        fmt_str += '    Videos Location: {}\n'.format(self.root_path)
+        fmt_str += '    Annotations file: {}\n'.format(self.list_file)
+        tmp = ' (multi-label)' if self.multi_label else ''
+        fmt_str += '    Number of classes: {}{}\n'.format(self.num_classes, tmp)
+        tmp = '    Transforms (if any): '
+        fmt_str += '{0}{1}\n'.format(tmp,
+                                     self.transform.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
+
+        return fmt_str

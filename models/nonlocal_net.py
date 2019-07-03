@@ -58,8 +58,6 @@ class I3DResNet(nn.Module):
 
     def __init__(self, block, layers, temp_conv, nonlocal_block, frame_num=32, num_classes=400,
                  non_local=True):
-        if torch.cuda.is_available():
-            torch.set_default_tensor_type('torch.cuda.FloatTensor')
         self.inplanes = 64
         self.non_local = non_local
         super(I3DResNet, self).__init__()
@@ -235,11 +233,9 @@ class NonLocalBlock(nn.Module):
         return z
 
 
-def resnet50(weights_file=None, mode='train', dataset='kinetics', **kwargs):
+def resnet50(weights_file=None, mode='train', num_classes=400, **kwargs):
     assert mode in ['train', 'test', 'val'], (
         'Mode {} does not exist. Choose between "train, "val" or "test".'.format(mode))
-    assert dataset in ['kinetics', 'charades'], (
-        'Dataset {} not available. Choose between "kinetics" or "charades".'.format(dataset))
 
     temp_conv = [
         [1, 1, 1],
@@ -254,16 +250,14 @@ def resnet50(weights_file=None, mode='train', dataset='kinetics', **kwargs):
         [0, 0, 0]
     ]
 
-    num_classes = {
-        'kinetics': 400,
-        'charades': 157
-    }
-
     model = I3DResNet(Bottleneck, [3, 4, 6, 3], temp_conv=temp_conv, nonlocal_block=nonlocal_block,
-                      num_classes=num_classes[dataset], **kwargs)
+                      num_classes=num_classes, **kwargs)
 
     if weights_file is not None:
         model.load_state_dict(torch.load(weights_file))
     model.set_mode(mode)
+
+    if torch.cuda.is_available():
+        model.cuda()
 
     return model

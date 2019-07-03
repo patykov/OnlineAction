@@ -30,8 +30,9 @@ class Charades(data.Dataset):
     input_std = [0.229, 0.224, 0.225]
     FPS, GAP, testGAP = 24, 4, 25
     num_classes = 157
+    multi_label = True
 
-    def __init__(self, root_path, list_file, sample_frames=32, transform=None,
+    def __init__(self, root_path, list_file, sample_frames=8, transform=None,
                  mode='train', test_clips=25, causal=False):
         self.root_path = root_path
         self.list_file = list_file
@@ -132,7 +133,7 @@ class Charades(data.Dataset):
         data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
         data = data.permute(1, 0, 2, 3, 4).contiguous()
 
-        return data, target if self.mode == 'train' else video_path
+        return data, target if self.mode in ['train', 'val'] else video_path
 
     def get(self, record, indices):
         uniq_id = np.unique(indices)
@@ -183,3 +184,16 @@ class Charades(data.Dataset):
 
     def set_log(self, output_file):
         return CharadesLog(self.list_file, output_file, self.causal, self.test_clips)
+
+    def __repr__(self):
+        fmt_str = 'Dataset ' + self.__class__.__name__ + '\n'
+        fmt_str += '    Number of samples: {}\n'.format(self.__len__())
+        fmt_str += '    Videos Location: {}\n'.format(self.root_path)
+        fmt_str += '    Annotations file: {}\n'.format(self.list_file)
+        tmp = ' (multi-label)' if self.multi_label else ''
+        fmt_str += '    Number of classes: {}{}\n'.format(self.num_classes, tmp)
+        tmp = '    Transforms (if any): '
+        fmt_str += '{0}{1}\n'.format(tmp,
+                                     self.transform.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
+
+        return fmt_str
