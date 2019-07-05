@@ -60,10 +60,9 @@ class Recall(Metric):
 
 
 class Video_Accuracy(Metric):
-    def __init__(self, save_text):
+    def __init__(self):
         super().__init__(name='video_accuracy')
         self.text = '{:^5} | {:^20}\n'.format('Label', 'Top5 predition')
-        self.save_text = save_text
         self.top1_pred = []
         self.top5_pred = []
         self.labels = []
@@ -78,9 +77,8 @@ class Video_Accuracy(Metric):
         self.top5_pred.append(target if target in top5_pred else top5_pred[0])
         self.labels.append(target)
 
-        if self.save_text:
-            self.text += '{:^5} | {:^20}\n'.format(target, np.array2string(
-                top5_pred.numpy(), separator=', ')[1:-1])
+        self.text += '{:^5} | {:^20}\n'.format(target, np.array2string(
+            top5_pred.numpy(), separator=', ')[1:-1])
 
     def __repr__(self):
         acc1 = get_accuracy(self.top1_pred, self.labels)
@@ -94,8 +92,7 @@ class Video_Accuracy(Metric):
 
 
 class Video_mAP(Metric):
-    def __init__(self, save_text=False):
-        self.save_text = save_text
+    def __init__(self):
         self.am = AverageMeter()
         self.predictions = []
         self.targets = []
@@ -107,10 +104,10 @@ class Video_mAP(Metric):
 
         self.targets.append(target['target'].numpy()[0])
         self.predictions.append(prediction)
-        if self.save_text:
-            self.text += '{} {}\n'.format(target['video_path'][0], np.array2string(
-                prediction.numpy(), separator=' ',
-                formatter={'float_kind': lambda x: '%.8f' % x})[1:-1].replace('\n', ''))
+
+        self.text += '{} {}\n'.format(target['video_path'][0], np.array2string(
+            prediction.numpy(), separator=' ',
+            formatter={'float_kind': lambda x: '%.8f' % x})[1:-1].replace('\n', ''))
 
     def __repr__(self):
         mAP, _, ap = charades_map(np.vstack(self.predictions), np.vstack(self.targets))

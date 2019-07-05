@@ -40,8 +40,7 @@ def eval(map_file, root_data_path, weights_file, baseline, causal, mode, dataset
     LOG.info('Loading model took {:.3f}s'.format(model_time - data_time))
     LOG.debug(model)
 
-    metric = m.Video_mAP(save_text=True) if dataset.multi_label else m.Video_Accuracy(
-        save_text=True)
+    metric = m.Video_mAP() if dataset.multi_label else m.Video_Accuracy()
     batch_time = m.AverageMeter()
     data_time = m.AverageMeter()
     with torch.no_grad():
