@@ -8,7 +8,6 @@ import torchvision
 from numpy.random import randint
 
 import transforms as t
-from log_tools.charades_log import CharadesLog
 
 from .video_dataset import VideoRecord
 
@@ -182,9 +181,6 @@ class Charades(data.Dataset):
             ])
 
         return transforms
-
-    def set_log(self, output_file):
-        return CharadesLog(self.list_file, output_file, self.causal, self.test_clips)
 
     def __repr__(self):
         fmt_str = 'Dataset ' + self.__class__.__name__ + '\n'
