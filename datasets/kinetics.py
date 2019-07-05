@@ -46,7 +46,7 @@ class Kinetics(data.Dataset):
         else:
             self.transform = self.default_transforms()
 
-        self.video_list = self._parse_list()
+        self._parse_list()
 
     def _parse_list(self):
         """
@@ -55,7 +55,7 @@ class Kinetics(data.Dataset):
         Returns:
             List of the videos relative path and their labels in the format: [label, video_path].
         """
-        return [x.strip().split(' ') for x in open(self.list_file)]
+        self.video_list = [x.strip().split(' ') for x in open(self.list_file)]
 
     def _get_train_indices(self, record):
         expanded_sample_length = self.sample_frames * self.stride
@@ -109,7 +109,7 @@ class Kinetics(data.Dataset):
         data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
         data = data.permute(1, 0, 2, 3, 4).contiguous()
 
-        return data, int(record.label)
+        return data, {'target': int(record.label)}
 
     def get(self, record, indices):
         uniq_id = np.unique(indices)

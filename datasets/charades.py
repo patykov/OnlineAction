@@ -47,7 +47,7 @@ class Charades(data.Dataset):
         else:
             self.transform = self.default_transforms()
 
-        self.video_list = self._parse_list()
+        self._parse_list()
 
     def _parse_list(self):
         """
@@ -69,7 +69,7 @@ class Charades(data.Dataset):
                         y), 'end': float(z)} for x, y, z in actions]
                 video_list.append([actions, vid])
 
-        return video_list
+        self.video_list = video_list
 
     def _get_train_indices(self, record):
         expanded_sample_length = self.sample_frames * self.stride
@@ -133,7 +133,7 @@ class Charades(data.Dataset):
         data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
         data = data.permute(1, 0, 2, 3, 4).contiguous()
 
-        return data, target if self.mode in ['train', 'val'] else video_path
+        return data, {'target': target, 'video_path': video_path}
 
     def get(self, record, indices):
         uniq_id = np.unique(indices)
@@ -162,12 +162,13 @@ class Charades(data.Dataset):
         elif self.mode == 'test':
             cropping = torchvision.transforms.Compose([
                 t.GroupResize(256),
-                t.GroupFullyConv(256)
+                t.GroupFullyConv(320)
             ])
         elif self.mode == 'train':
             cropping = torchvision.transforms.Compose([
                 t.GroupRandomResize(256, 320),
                 t.GroupRandomCrop(224),
+                t.GroupResize(288),
                 t.GroupRandomHorizontalFlip()
             ])
         else:

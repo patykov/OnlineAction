@@ -49,7 +49,7 @@ class Runnercommands():
 def get_results_file_name(file_name):
     base, file_name = os.path.split(file_name)
     name, ext = os.path.splitext(file_name)
-    output_file = os.path.join(base, name+'_results'+ext)
+    output_file = os.path.join(base, name+'_results.txt')
 
     return output_file
 

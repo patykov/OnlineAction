@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.metrics import classification_report
 
-from .metrics import get_accuracy
+from metric_tools.metrics import get_accuracy
 
 
 def get_top_predictions(video_pred, video_labels):
