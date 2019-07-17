@@ -150,18 +150,14 @@ class I3DResNet(nn.Module):
 
         x = self.avgpool(x)
 
-        if self.mode == 'train':
+        if self.mode == 'test':
+            x = self.conv1x1(x)
+            x = x.mean(4).mean(3).mean(2)
+
+        else:  # self.mode in ['train', 'val']
             x = x.view(x.size(0), -1)
             x = self.avgdrop(x)
             x = self.fc(x)
-
-        elif self.mode == 'val':
-            x = x.view(x.size(0), -1)
-            x = self.fc(x)
-
-        elif self.mode == 'test':
-            x = self.conv1x1(x)
-            x = x.mean(4).mean(3).mean(2)
 
         return x
 
@@ -260,6 +256,8 @@ def resnet50(weights_file=None, mode='train', num_classes=400, fine_tune=False, 
         LOG = logging.getLogger(name='log')
         LOG.info('Loading pretrained-weights from {}'.format(weights_file))
         weights = torch.load(weights_file)
+        if 'model' in weights:  # When loading from a checkpoint
+            weights = weights['model']
         if fine_tune:
             LOG.info('Removing last layer weights to fine-tune')
             weights = {k: v for k, v in weights.items() if 'fc.' not in k}

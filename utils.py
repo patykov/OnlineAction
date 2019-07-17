@@ -93,7 +93,7 @@ def get_dataloaders(dataset, train_file, val_file, train_data, val_data, batch_s
     train_dataset = Dataset(train_data, train_file, sample_frames=sample_frames,
                             mode='train', causal=causal)
     val_dataset = Dataset(val_data, val_file, sample_frames=sample_frames,
-                          mode='val', causal=causal)
+                          mode='val', causal=causal, test_clips=10)
 
     if distributed:
         import horovod.torch as hvd

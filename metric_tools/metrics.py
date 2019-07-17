@@ -6,11 +6,29 @@ from sklearn.metrics import confusion_matrix
 from .charades_classify import charades_map
 
 
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0.0
+        self.avg = 0.0
+        self.sum = 0.0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
 class Metric:
     def __init__(self, name):
-        self.aggregate = 0
-        self.count = 0
         self.name = name
+        self.reset()
 
     def reset(self):
         self.aggregate = 0
@@ -43,8 +61,8 @@ class Accuracy(Metric):
 
 
 class Recall(Metric):
-    def __init__(self, threshold, name):
-        super().__init__(name)
+    def __init__(self, threshold):
+        super().__init__()
         self.threshold = threshold
 
     def _add(self, output, target):
@@ -59,9 +77,39 @@ class Recall(Metric):
         return 'recall(thr={:g})'.format(self.threshold)
 
 
+class mAP(object):
+    def __init__(self, name):
+        self.name = name
+        self.reset()
+
+    def reset(self):
+        self.predictions = []
+        self.targets = []
+        self.count = 0
+
+    @torch.no_grad()
+    def add(self, output, target):
+        prediction = torch.sigmoid(output)
+
+        self.targets.append(hvd.allreduce(
+            target.cpu(), average=False, name=self.name + 'target'))
+        self.predictions.append(hvd.allreduce(
+            prediction.cpu(), average=False, name=self.name + 'prediction'))
+        self.count += hvd.allreduce(
+            torch.tensor(target.size(0)), average=False, name=self.name + 'count').item()
+
+    @property
+    def value(self):
+        mAP, _, _ = charades_map(np.vstack(self.predictions), np.vstack(self.targets))
+        return mAP
+
+    def __repr__(self):
+        return 'mAP'
+
+
 class Video_Accuracy(Metric):
     def __init__(self):
-        super().__init__(name='video_accuracy')
+        super().__init__()
         self.text = '{:^5} | {:^20}\n'.format('Label', 'Top5 predition')
         self.top1_pred = []
         self.top5_pred = []
@@ -110,32 +158,13 @@ class Video_mAP(Metric):
             formatter={'float_kind': lambda x: '%.8f' % x})[1:-1].replace('\n', ''))
 
     def __repr__(self):
-        mAP, _, ap = charades_map(np.vstack(self.predictions), np.vstack(self.targets))
+        mAP, _, _ = charades_map(np.vstack(self.predictions), np.vstack(self.targets))
         return 'mAP: {:.5f}'.format(mAP)
 
     def to_text(self):
         partial_results = self.text[:-2]  # Removing last '\n'
         self.text = ''
         return partial_results
-
-
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val = 0.0
-        self.avg = 0.0
-        self.sum = 0.0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
 
 
 def get_accuracy(predictions, labels):

@@ -5,7 +5,6 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-
 .pytest_cache/
 
 # Jupyter Notebook
@@ -26,8 +25,12 @@ venv.bak/
 # mypy
 .mypy_cache/
 
-### VisualStudioCode ###
+# VisualStudioCode
 .vscode/
 
-## Model outputs ###
+# Model outputs
 outputs/
+
+# Philly running files
+*.yaml
+*.diff

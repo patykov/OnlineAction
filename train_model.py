@@ -46,6 +46,7 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
     model.train(is_train)  # Set model to train/eval mode
     if is_train:
         scheduler.step()
+        optimizer.zero_grad()
         dataloader.sampler.set_epoch(epoch)
 
     running_loss = 0
@@ -53,7 +54,7 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
     metric.reset()
 
     with tqdm(
-            desc='Epoch {}/{} - {}'.format(epoch, num_epochs, 'Train' if is_train else 'Val'),
+            desc='\nEpoch {}/{} - {}'.format(epoch, num_epochs, 'Train' if is_train else 'Val'),
             total=len(dataloader.dataset),
             leave=False,
             maxinterval=3600,
@@ -63,8 +64,7 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
                 batch_samples = torch.tensor(data.shape[0]).item()
 
                 # Get outputs
-                outputs = model(data.view(
-                    -1, data.size(2), data.size(3), data.size(4), data.size(5)).contiguous().cuda())
+                outputs = model(data.view(-1, *data.shape[2:]).contiguous().cuda())
                 if not is_train:
                     # Get mean output for video
                     outputs = outputs.view(
@@ -88,9 +88,9 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
 
                 # Update weights
                 if is_train:
-                    optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
+                    optimizer.zero_grad()
 
     return running_loss / metric.count, metric
 
@@ -130,6 +130,7 @@ def train(config_json, train_file, val_file, train_data, val_data, dataset, chec
     if hvd.rank() == 0:
         if os.path.exists(checkpoint_path) and not restart:
             try:
+                LOG.info('Loading checkpoint from {}.'.format(checkpoint_path))
                 load_checkpoint(checkpoint_path, model, meta, optimizer, scheduler)
             except RuntimeError as e:
                 LOG.info(e)
@@ -145,7 +146,7 @@ def train(config_json, train_file, val_file, train_data, val_data, dataset, chec
             LOG.info('Batch size: {:d}'.format(config['batch_size']))
             LOG.info('Using {:d} workers for data loading\n'.format(num_workers))
             LOG.info('Saving results to {}\n'.format(os.path.abspath(checkpoint_path)))
-            LOG.info(model)
+            # LOG.info(model)
             LOG.info('\nNumber of trainable parameters: {}'.format(
                 sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
@@ -156,29 +157,25 @@ def train(config_json, train_file, val_file, train_data, val_data, dataset, chec
 
     initial_epoch = scheduler.last_epoch + 1
 
-    train_metric = m.Recall(0., 'train_metric') if multi_label else m.Accuracy('train_metric')
-    val_metric = m.Recall(0., 'val_metric') if multi_label else m.Accuracy('val_metric')
+    train_metric = m.mAP('train_metric') if multi_label else m.Accuracy('train_metric')
+    val_metric = m.mAP('val_metric') if multi_label else m.Accuracy('val_metric')
 
     if multi_label:
-        weights = 10 * torch.ones(num_classes).to('cuda')
 
         def criterion(outputs, labels):
             # Convert labels to Float type
             return F.binary_cross_entropy_with_logits(
-                outputs, labels.type_as(outputs), pos_weight=weights, reduction='none')
+                outputs, labels.type_as(outputs), reduction='none')
     else:
 
         def criterion(outputs, labels):
-            # Output has shape (N, R, C) we need to transpose it to (N, C, R) because
-            # CrossEntropyLoss expects the second dimension to be the class dimension
-            return F.cross_entropy(
-                outputs.transpose(1, 2), labels, reduction='none')
+            return F.cross_entropy(outputs, labels, reduction='none')
 
     for epoch in range(initial_epoch, num_epochs):
         b = time.time()
         # Train for one epoch
-        train_loss, train_metric = run_epoch(model, train_loader, epoch, num_epochs,
-                                             criterion, train_metric, True, optimizer, scheduler)
+        train_loss, train_metric = run_epoch(model, train_loader, epoch, num_epochs, criterion,
+                                             train_metric, True, optimizer, scheduler)
         e1 = time.time()
 
         meta['loss'].append(train_loss)
@@ -199,7 +196,7 @@ def train(config_json, train_file, val_file, train_data, val_data, dataset, chec
             train_time = e1 - b
             val_time = e - b2
 
-            prefix = 'Epoch {}/{} - '.format(epoch + 1, num_epochs)
+            prefix = 'Epoch {}/{} - '.format(epoch, num_epochs)
             tmp = ('{prefix}{phase:>5}: loss = {loss:.4f}, {metric} = {metric_value:.4f}.'
                    ' {phase} time: {time:.2f}s ({rate:.2f} samples/s)')
             train_string = tmp.format(
@@ -251,7 +248,7 @@ def main():
     parser.add_argument('--filename',
                         help='Checkpoint and logging filenames',
                         default=None)
-    parser.add_argument('-r', '--restart',
+    parser.add_argument('--restart',
                         help=('Restart from scratch (instead of restarting from checkpoint ',
                               'file by default)'),
                         action='store_true')
@@ -266,7 +263,6 @@ def main():
                         default=None)
 
     args = parser.parse_args()
-    os.makedirs(args.outputdir, exist_ok=True)
 
     assert args.dataset in ['kinetics', 'charades'], (
         'Dataset {} not available. Choose between "kinetics" or "charades".'.format(args.dataset))
@@ -276,9 +272,10 @@ def main():
     filename = args.filename if args.filename else os.path.splitext(
         os.path.basename(args.config_file))[0]
     outputdir = args.outputdir if args.outputdir else os.path.join(
-        os.path.dirname(__file__), 'outputs',
+        os.path.dirname(__file__), '..', 'outputs',
         os.path.splitext(os.path.basename(args.config_file))[0])
     checkpoint_path = os.path.join(outputdir, filename + '.pth')
+    os.makedirs(outputdir, exist_ok=True)
 
     hvd.init()
     torch.cuda.set_device(hvd.local_rank())
