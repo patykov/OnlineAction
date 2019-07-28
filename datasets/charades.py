@@ -18,12 +18,11 @@ class Charades(data.Dataset):
         root_path: Full path to the dataset videos directory.
         list_file: Full path to the file that lists the videos to be considered (train, val, test)
             with its annotations.
-        sample_frames: Number of frames used in the input (temporal dim)
-        stride: Temporal stride used to collect the sample_frames(E.g.: An input of 32 frames with
-            stride of 2 reaches a temporal depth of 64 frames (32x2). As does an input of 8 frames
-            with a stride of 8 (8x8).)
+        sample_frames: Number of frames used in the input (temporal dimension).
+        transform: A function that takes in an PIL image and returns a transformed numpy version.
         mode: Set the dataset mode as 'train', 'val' or 'test'.
-        transform: A function that takes in an PIL image and returns a transformed version.
+        test_clips: Number of clips to be evenly sample from each full-length video for evaluation.
+        causal: If True, sets the evaluation to causal mode. (NotImplemented)
     """
     input_mean = [0.485, 0.456, 0.406]
     input_std = [0.229, 0.224, 0.225]
@@ -50,9 +49,8 @@ class Charades(data.Dataset):
 
     def _parse_list(self):
         """
-        Returns:
-            video_list: List of the videos relative path and their labels in the format:
-                        [label, video_path].
+        Parses the annotation file to create a list of the videos relative path and their labels
+        in the format: [label, video_path].
         """
         video_list = []
         with open(self.list_file) as f:
@@ -68,9 +66,19 @@ class Charades(data.Dataset):
                         y), 'end': float(z)} for x, y, z in actions]
                 video_list.append([actions, vid])
 
-        self.video_list = video_list
+        # Subset for tests!!!
+        subset_list = [v for i, v in enumerate(video_list) if i % 10 == 0]
+
+        self.video_list = subset_list
 
     def _get_train_indices(self, record):
+        """
+        Args:
+            record : VideoRecord object
+        Returns:
+            offsets : List of image indices to be loaded from a video.
+            target: Binary list of labels from a video.
+        """
         expanded_sample_length = self.sample_frames * self.stride
         if record.num_frames >= expanded_sample_length:
             start_pos = randint(record.num_frames - expanded_sample_length + 1)
@@ -92,10 +100,11 @@ class Charades(data.Dataset):
 
     def _get_test_indices(self, record):
         """
-        Argument:
+        Args:
             record : VideoRecord object
         Returns:
-            offsets : List of image indices to be loaded
+            offsets : List of image indices to be loaded from a video.
+            target: Binary list of labels from a video.
         """
         sample_start_pos = np.linspace(
             self.sample_frames*self.stride, record.num_frames-1, self.test_clips, dtype=int)

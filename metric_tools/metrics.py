@@ -69,18 +69,17 @@ class Recall(Metric):
         preds = output > self.threshold
         # Recall is TP / (TP + FN)
         self.aggregate += hvd.allreduce(
-            torch.sum(preds * target.type_as(preds)), average=False, name=self.name + 'agg').item()
+            torch.sum(preds * target.type_as(preds)), average=False, name=self.name + '_agg').item()
         self.count += hvd.allreduce(
-            torch.tensor(target.size(0)), average=False, name=self.name + 'count').item()
+            torch.tensor(target.size(0)), average=False, name=self.name + '_count').item()
 
     def __repr__(self):
         return 'recall(thr={:g})'.format(self.threshold)
 
 
-class mAP(object):
+class mAP(Metric):
     def __init__(self, name):
-        self.name = name
-        self.reset()
+        super().__init__(name)
 
     def reset(self):
         self.predictions = []
@@ -88,28 +87,26 @@ class mAP(object):
         self.count = 0
 
     @torch.no_grad()
-    def add(self, output, target):
+    def _add(self, output, target):
         prediction = torch.sigmoid(output)
 
-        self.targets.append(hvd.allreduce(
-            target.cpu(), average=False, name=self.name + 'target'))
-        self.predictions.append(hvd.allreduce(
-            prediction.cpu(), average=False, name=self.name + 'prediction'))
+        self.targets.append(hvd.allgather(target.cpu(), name=self.name + '_target'))
+        self.predictions.append(hvd.allgather(prediction.cpu(), name=self.name + '_pred'))
         self.count += hvd.allreduce(
-            torch.tensor(target.size(0)), average=False, name=self.name + 'count').item()
+            torch.tensor(target.size(0)), average=False, name=self.name + '_count').item()
 
     @property
     def value(self):
         mAP, _, _ = charades_map(np.vstack(self.predictions), np.vstack(self.targets))
-        return mAP
+        return mAP*100
 
     def __repr__(self):
         return 'mAP'
 
 
 class Video_Accuracy(Metric):
-    def __init__(self):
-        super().__init__()
+
+    def reset(self):
         self.text = '{:^5} | {:^20}\n'.format('Label', 'Top5 predition')
         self.top1_pred = []
         self.top5_pred = []
@@ -140,11 +137,11 @@ class Video_Accuracy(Metric):
 
 
 class Video_mAP(Metric):
-    def __init__(self):
-        self.am = AverageMeter()
+
+    def reset(self):
+        self.text = ''
         self.predictions = []
         self.targets = []
-        self.text = ''
 
     def _add(self, output, target):
         rst = output.mean(0)
