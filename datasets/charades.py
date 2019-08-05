@@ -26,16 +26,16 @@ class Charades(data.Dataset):
     """
     input_mean = [0.485, 0.456, 0.406]
     input_std = [0.229, 0.224, 0.225]
-    FPS, GAP, testGAP = 24, 4, 25
+    FPS, GAP = 24, 4
     num_classes = 157
     multi_label = True
 
     def __init__(self, root_path, list_file, sample_frames=8, transform=None,
-                 mode='train', test_clips=25, causal=False):
+                 mode='train', test_clips=10, causal=False):
         self.root_path = root_path
         self.list_file = list_file
         self.sample_frames = sample_frames
-        self.stride = 2 if self.sample_frames == 32 else 8
+        self.stride = 2 if sample_frames == 32 else 8
         self.mode = mode
         self.test_clips = test_clips
         self.causal = causal
@@ -67,9 +67,19 @@ class Charades(data.Dataset):
                 video_list.append([actions, vid])
 
         # Subset for tests!!!
-        subset_list = [v for i, v in enumerate(video_list) if i % 10 == 0]
+        # subset_list = [v for i, v in enumerate(video_list) if i % 10 == 0]
 
-        self.video_list = subset_list
+        self.video_list = video_list
+
+    def get_weights(self):
+        targets = torch.FloatTensor(len(self.video_list), self.num_classes).zero_()
+        for i, (label, _) in enumerate(self.video_list):
+            for l in label:
+                targets[i, int(l['class'][1:])] = 1
+        per_label_sum = targets.sum(dim=0)
+        weights = per_label_sum.max() / per_label_sum
+
+        return weights.cuda() if torch.cuda.is_available() else weights
 
     def _get_train_indices(self, record):
         """
@@ -89,13 +99,12 @@ class Charades(data.Dataset):
         else:
             offsets = np.sort(randint(record.num_frames, size=self.sample_frames))
 
-        offsets = [int(v) for v in offsets]
-
-        target = torch.IntTensor(157).zero_()
+        target = torch.IntTensor(self.num_classes).zero_()
         for frame in offsets:
             for l in record.label:
                 if l['start'] < frame/float(self.FPS) < l['end']:
                     target[int(l['class'][1:])] = 1
+
         return offsets, target
 
     def _get_test_indices(self, record):
@@ -115,7 +124,7 @@ class Charades(data.Dataset):
                 min(p, record.num_frames-1),
                 self.sample_frames, dtype=int))
 
-        target = torch.IntTensor(157).zero_()
+        target = torch.IntTensor(self.num_classes).zero_()
         for l in record.label:
             target[int(l['class'][1:])] = 1
 

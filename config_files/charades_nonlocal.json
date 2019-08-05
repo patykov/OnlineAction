@@ -1,0 +1,7 @@
+{
+    "sample_frames": 8,
+    "nonlocal": "True",
+    "weight_decay": 1e-4,
+    "learning_rate": [[10, 0.00125], [10, 0.000125], [5, 0.000125]],
+    "batch_size": 1
+}

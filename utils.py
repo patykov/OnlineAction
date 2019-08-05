@@ -79,7 +79,7 @@ def parse_json(json_file):
         'nonlocal': True,
         'weight_decay': 1e-4,
         'learning_rate': [[10, 0.1], [10, 0.01]],
-        'batch_size': 64
+        'batch_size': 8
     }
     default_values = recursive_update(default_values, data)
 
@@ -93,7 +93,7 @@ def get_dataloaders(dataset, train_file, val_file, train_data, val_data, batch_s
     train_dataset = Dataset(train_data, train_file, sample_frames=sample_frames,
                             mode='train', causal=causal)
     val_dataset = Dataset(val_data, val_file, sample_frames=sample_frames,
-                          mode='val', causal=causal, test_clips=10)
+                          mode='val', causal=causal, test_clips=1)
 
     if distributed:
         import horovod.torch as hvd
@@ -120,7 +120,7 @@ def get_dataloaders(dataset, train_file, val_file, train_data, val_data, batch_s
 def setup_logger(logger_name, log_file):
     log = logging.getLogger(logger_name)
     formatter = logging.Formatter('%(message)s')
-    fileHandler = logging.FileHandler(log_file, mode='w')
+    fileHandler = logging.FileHandler(log_file, mode='a')
     fileHandler.setFormatter(formatter)
     streamHandler = logging.StreamHandler()
     streamHandler.setFormatter(formatter)

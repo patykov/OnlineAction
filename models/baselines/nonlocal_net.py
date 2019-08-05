@@ -231,10 +231,7 @@ class NonLocalBlock(nn.Module):
         return z
 
 
-def resnet50(weights_file=None, mode='train', num_classes=400, fine_tune=False, **kwargs):
-    assert mode in ['train', 'test', 'val'], (
-        'Mode {} does not exist. Choose between "train, "val" or "test".'.format(mode))
-
+def resnet50(weights_file=None, num_classes=400, **kwargs):
     temp_conv = [
         [1, 1, 1],
         [1, 0, 1, 0],
@@ -250,23 +247,5 @@ def resnet50(weights_file=None, mode='train', num_classes=400, fine_tune=False, 
 
     model = I3DResNet(Bottleneck, [3, 4, 6, 3], temp_conv=temp_conv, nonlocal_block=nonlocal_block,
                       num_classes=num_classes, **kwargs)
-
-    strict = True
-    if weights_file is not None:
-        LOG = logging.getLogger(name='log')
-        LOG.info('Loading pretrained-weights from {}'.format(weights_file))
-        weights = torch.load(weights_file)
-        if 'model' in weights:  # When loading from a checkpoint
-            weights = weights['model']
-        if fine_tune:
-            LOG.info('Removing last layer weights to fine-tune')
-            weights = {k: v for k, v in weights.items() if 'fc.' not in k}
-            strict = False
-        keys = model.load_state_dict(weights, strict=strict)
-        LOG.info(keys)
-    model.set_mode(mode)
-
-    if torch.cuda.is_available():
-        model.cuda()
 
     return model

@@ -116,7 +116,7 @@ def load_charades(gt_path):
     return gt_ids, gt_classes
 
 
-def save(log_file, gt_file, output_file, batch_time, data_time):
+def save(log_file, gt_file, output_file, batch_time=None, data_time=None):
     mAP, wAP, ap = charades_v1_classify(log_file, gt_file)
 
     with open(output_file, 'w') as file:

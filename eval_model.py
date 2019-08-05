@@ -7,15 +7,15 @@ import torch.nn.parallel
 
 import datasets
 import metric_tools.metrics as m
-import models.nonlocal_net as i3d
+from models.get import get_model
 from utils import setup_logger
 
 
-def eval(map_file, root_data_path, weights_file, baseline, causal, mode, dataset,
-         sample_frames, workers):
+def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline, causal, mode,
+         dataset, sample_frames, workers):
     start_time = time.time()
 
-    LOG = logging.getLogger(name='log')
+    LOG = logging.getLogger(name='eval')
     RESULTS = logging.getLogger(name='results')
 
     # Loading data
@@ -32,15 +32,15 @@ def eval(map_file, root_data_path, weights_file, baseline, causal, mode, dataset
     LOG.debug(data_loader.dataset)
 
     # Loading model
-    model = i3d.resnet50(weights_file=weights_file, mode=mode,
-                         num_classes=dataset.num_classes, non_local=baseline,
-                         frame_num=sample_frames)
+    model = get_model(arch=arch, backbone=backbone, pretrained_weights=pretrained_weights,
+                      mode=mode, num_classes=dataset.num_classes, non_local=baseline,
+                      frame_num=sample_frames, log_name='eval')
     model.eval()
     model_time = time.time()
     LOG.info('Loading model took {:.3f}s'.format(model_time - data_time))
     LOG.debug(model)
 
-    metric = m.Video_mAP() if dataset.multi_label else m.Video_Accuracy()
+    metric = m.Video_mAP('test_metric') if dataset.multi_label else m.Video_Accuracy('test_metric')
     batch_time = m.AverageMeter()
     data_time = m.AverageMeter()
     with torch.no_grad():
@@ -77,10 +77,15 @@ if __name__ == '__main__':
     parser.add_argument('--map_file', type=str)
     parser.add_argument('--root_data_path', type=str,
                         help="Full path to the videos directory")
-    parser.add_argument('--weights_file', type=str, default=None)
+    parser.add_argument('--pretrained_weights', type=str, default=None)
     parser.add_argument('--log_file',
-                        help='Path to file name that will be used for the results, log and metrics',
+                        help='Results, log and metrics filenames.',
                         type=str)
+    parser.add_argument('--outputdir',
+                        help='Output directory for logs and results.',
+                        default=None)
+    parser.add_argument('--arch', type=str, default='nonlocal_net')
+    parser.add_argument('--backbone', type=str, default='resnet50')
     parser.add_argument('--baseline', action='store_false')
     parser.add_argument('--causal', action='store_true')
     parser.add_argument('--mode', type=str, default='val')
@@ -98,13 +103,16 @@ if __name__ == '__main__':
 
     torch.multiprocessing.set_sharing_strategy('file_system')
 
-    outputdir = os.path.dirname(args.log_file)
+    outputdir = args.outputdir if args.outputdir else os.path.join(
+        os.path.dirname(__file__), '..', 'outputs',
+        os.path.splitext(os.path.basename(args.log_file))[0])
+    os.makedirs(outputdir, exist_ok=True)
     base_name = os.path.join(outputdir, os.path.splitext(os.path.basename(args.log_file))[0])
     log_file = base_name + '.log'
     results_file = base_name + '.txt'
 
-    setup_logger('log', log_file)
+    setup_logger('eval', log_file)
     setup_logger('results', results_file)
 
-    eval(args.map_file, args.root_data_path, args.weights_file, args.baseline, args.causal,
-         args.mode, args.dataset, args.sample_frames, args.workers)
+    eval(args.map_file, args.root_data_path, args.pretrained_weights, args.arch, args.backbone,
+         args.baseline, args.causal, args.mode, args.dataset, args.sample_frames, args.workers)

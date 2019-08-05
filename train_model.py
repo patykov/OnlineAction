@@ -2,7 +2,6 @@ import argparse
 import logging
 import os
 import time
-from distutils import dir_util
 
 import horovod.torch as hvd
 import torch
@@ -11,8 +10,8 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 import metric_tools.metrics as m
-import models.nonlocal_net as i3d
 import utils
+from models.get import get_model
 
 
 def save_checkpoint(checkpoint_path, model, meta, optimizer, scheduler):
@@ -49,7 +48,7 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
         optimizer.zero_grad()
         dataloader.sampler.set_epoch(epoch)
 
-    running_loss = 0
+    running_loss = m.AverageMeter()
     offset = 0
     metric.reset()
 
@@ -65,22 +64,19 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
 
                 # Get outputs
                 outputs = model(data.view(-1, *data.shape[2:]).contiguous().cuda())
-                if not is_train:
-                    # Get mean output for video
+                if not is_train:  # Get mean of video clips
                     outputs = outputs.view(
                         batch_samples, -1, label['target'].size(1)).contiguous().mean(1)
-                labels = label['target'].to(outputs.device)
+                targets = label['target'].cuda()
 
                 # Compute loss and metrics
-                loss = criterion(outputs, labels).sum()
-                running_loss += loss.detach().item()
-                loss = loss / batch_samples  # Normalize loss per batch samples
-
-                metric.add(outputs, labels)
+                loss = criterion(outputs, targets)
+                running_loss.update(loss, batch_samples)
+                metric.add(outputs, targets)
 
                 if metric.count - offset >= t.total // 10:  # Update progressbar every 10%
                     t.set_postfix({
-                        'loss': '{:.4f}'.format(running_loss / metric.count),
+                        'loss': '{:.4f}'.format(running_loss.avg),
                         str(metric): '{:.3f}'.format(metric.value)
                     }, refresh=False)
                     t.update(metric.count - offset)
@@ -92,41 +88,60 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
                     optimizer.step()
                     optimizer.zero_grad()
 
-    return running_loss / metric.count, metric
+    return running_loss.avg, metric
 
 
 def train(config_json, train_file, val_file, train_data, val_data, dataset, checkpoint_path,
-          restart=False, num_workers=4, weights_file=None, fine_tune=True):
+          restart=False, num_workers=4, arch='nonlocal_net', backbone='resnet50',
+          pretrained_weights=None, fine_tune=True):
 
     config = utils.parse_json(config_json)
 
     chkpt_name, chkpt_ext = os.path.splitext(checkpoint_path)
     backup_path = chkpt_name + '_bkp' + chkpt_ext
 
-    LOG = logging.getLogger(name='training')
+    # Data loaders
     train_loader, val_loader = utils.get_dataloaders(
         dataset, train_file, val_file, train_data, val_data, config['batch_size'],
         sample_frames=config['sample_frames'], num_workers=num_workers, distributed=True)
     num_classes = train_loader.dataset.num_classes
+    multi_label = train_loader.dataset.multi_label
 
-    # Loading model
-    model = i3d.resnet50(weights_file=weights_file, mode='train', num_classes=num_classes,
-                         non_local=config['nonlocal'], frame_num=config['sample_frames'],
-                         fine_tune=fine_tune)
-    meta = {}
+    # Metrics
+    train_metric = m.mAP('train_metric') if multi_label else m.Accuracy('train_metric')
+    val_metric = m.mAP('val_metric') if multi_label else m.Accuracy('val_metric')
 
+    # Model
+    model = get_model(arch=arch, backbone=backbone, pretrained_weights=pretrained_weights,
+                      mode='train', num_classes=num_classes, non_local=config['nonlocal'],
+                      frame_num=config['sample_frames'], fine_tune=fine_tune, log_name='training')
+
+    # Epochs, optimizer, scheduler, criterion
     num_epochs, optimizer, scheduler = utils.get_optimizer(
         model, config['learning_rate'], config['weight_decay'], distributed=True)
-    multi_label = train_loader.dataset.multi_label
+    initial_epoch = scheduler.last_epoch + 1
+
+    if multi_label:
+        weights = train_loader.dataset.get_weights()
+
+        def criterion(outputs, labels):
+            return F.binary_cross_entropy_with_logits(
+                outputs, labels.type_as(outputs), pos_weight=weights)
+    else:
+
+        def criterion(outputs, labels):
+            return F.cross_entropy(outputs, labels)
+
+    # Info to restore from checkpoint
+    meta = {}
     for k in ['loss', 'val_loss', 'metric', 'val_metric']:
         meta.setdefault(k, [])
-
-    meta['config_file'] = config_json
     meta['config'] = config
-    meta['dataset'] = os.path.dirname(train_file)
     meta['train_file'] = os.path.basename(train_file)
     meta['val_file'] = os.path.basename(val_file)
 
+    # Logging info
+    LOG = logging.getLogger(name='training')
     if hvd.rank() == 0:
         if os.path.exists(checkpoint_path) and not restart:
             try:
@@ -155,23 +170,7 @@ def train(config_json, train_file, val_file, train_data, val_data, dataset, chec
     hvd.broadcast_optimizer_state(optimizer, root_rank=0)
     utils.broadcast_scheduler_state(scheduler, root_rank=0)
 
-    initial_epoch = scheduler.last_epoch + 1
-
-    train_metric = m.mAP('train_metric') if multi_label else m.Accuracy('train_metric')
-    val_metric = m.mAP('val_metric') if multi_label else m.Accuracy('val_metric')
-
-    if multi_label:
-
-        def criterion(outputs, labels):
-            # Convert labels to Float type
-            return F.binary_cross_entropy_with_logits(
-                outputs, labels.type_as(outputs), reduction='none')
-    else:
-
-        def criterion(outputs, labels):
-            return F.cross_entropy(outputs, labels, reduction='none')
-
-    for epoch in range(initial_epoch, num_epochs):
+    for epoch in range(initial_epoch, num_epochs+1):
         b = time.time()
         # Train for one epoch
         train_loss, train_metric = run_epoch(model, train_loader, epoch, num_epochs, criterion,
@@ -186,6 +185,9 @@ def train(config_json, train_file, val_file, train_data, val_data, dataset, chec
         val_loss, val_metric = run_epoch(model, val_loader, epoch, num_epochs, criterion,
                                          val_metric, False)
         e = time.time()
+
+        meta['val_loss'].append(val_loss)
+        meta['val_metric'].append(val_metric.value)
 
         if hvd.rank() == 0:
             # Checkpoint with redundancy
@@ -236,9 +238,9 @@ def main():
                         help=('Full path to the validation videos directory.'
                               'If None, will be used val_data_path = train_data_path'),
                         default=None)
-    parser.add_argument('--base_model', type=str, default='resnet50')
-    parser.add_argument('--weights_file', type=str, default=None)
-    parser.add_argument('--resume', type=str, default=None)
+    parser.add_argument('--arch', type=str, default='nonlocal_net')
+    parser.add_argument('--backbone', type=str, default='resnet50')
+    parser.add_argument('--pretrained_weights', type=str, default=None)
     parser.add_argument('--outputdir',
                         help='Output directory for checkpoints and models',
                         default=None)
@@ -253,14 +255,11 @@ def main():
                               'file by default)'),
                         action='store_true')
     parser.add_argument('--fine_tune',
-                        help=('Fine-tune the model from the weights stored in weights_file.'),
+                        help=('Fine-tune the model from the weights stored in pretrained_weights.'),
                         action='store_true')
     parser.add_argument('--workers', type=int,
                         help='Number of workers on the data loading subprocess',
                         default=4)
-    parser.add_argument('--prev_output_dir',
-                        help='Previous output directory for checkpoints and models',
-                        default=None)
 
     args = parser.parse_args()
 
@@ -273,25 +272,22 @@ def main():
         os.path.basename(args.config_file))[0]
     outputdir = args.outputdir if args.outputdir else os.path.join(
         os.path.dirname(__file__), '..', 'outputs',
-        os.path.splitext(os.path.basename(args.config_file))[0])
+        os.path.splitext(os.path.basename(args.filename))[0])
     checkpoint_path = os.path.join(outputdir, filename + '.pth')
     os.makedirs(outputdir, exist_ok=True)
 
+    # Initialize horovod
     hvd.init()
     torch.cuda.set_device(hvd.local_rank())
 
+    # Setting loggers
     if hvd.rank() == 0:
-        if args.prev_output_dir and os.path.isdir(args.prev_output_dir):
-            dir_util.copy_tree(args.prev_output_dir, args.outputdir, update=True, verbose=True)
-        log_file = os.path.join(args.outputdir, filename + '.log')
+        log_file = os.path.join(outputdir, filename + '.log')
         utils.setup_logger('training', log_file)
-        if args.prev_output_dir and os.path.isdir(args.prev_output_dir):
-            logging.getLogger(name='training').info('Copying results from {} to {}...'.format(
-                args.prev_output_dir, args.outputdir))
 
     train(args.config_file, args.train_map_file, args.val_map_file, args.train_data_path,
           val_data_path, args.dataset, checkpoint_path, args.restart, args.workers,
-          args.weights_file, args.fine_tune)
+          args.arch, args.backbone, args.pretrained_weights, args.fine_tune)
 
 
 if __name__ == '__main__':
