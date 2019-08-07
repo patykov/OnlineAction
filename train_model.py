@@ -93,7 +93,7 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
 
 def train(config_json, train_file, val_file, train_data, val_data, dataset, checkpoint_path,
           restart=False, num_workers=4, arch='nonlocal_net', backbone='resnet50',
-          pretrained_weights=None, fine_tune=True):
+          pretrained_weights=None, fine_tune=True, balance=False):
 
     config = utils.parse_json(config_json)
 
@@ -119,14 +119,14 @@ def train(config_json, train_file, val_file, train_data, val_data, dataset, chec
     # Epochs, optimizer, scheduler, criterion
     num_epochs, optimizer, scheduler = utils.get_optimizer(
         model, config['learning_rate'], config['weight_decay'], distributed=True)
-    initial_epoch = scheduler.last_epoch + 1
 
     if multi_label:
-        weights = train_loader.dataset.get_weights()
+        pos_weight = train_loader.dataset.get_weights()
 
         def criterion(outputs, labels):
             return F.binary_cross_entropy_with_logits(
-                outputs, labels.type_as(outputs), pos_weight=weights)
+                outputs, labels.type_as(outputs),
+                pos_weight=pos_weight if balance else None)
     else:
 
         def criterion(outputs, labels):
@@ -169,6 +169,8 @@ def train(config_json, train_file, val_file, train_data, val_data, dataset, chec
     hvd.broadcast_parameters(model.state_dict(), root_rank=0)
     hvd.broadcast_optimizer_state(optimizer, root_rank=0)
     utils.broadcast_scheduler_state(scheduler, root_rank=0)
+
+    initial_epoch = scheduler.last_epoch + 1
 
     for epoch in range(initial_epoch, num_epochs+1):
         b = time.time()
@@ -254,6 +256,8 @@ def main():
                         help=('Restart from scratch (instead of restarting from checkpoint ',
                               'file by default)'),
                         action='store_true')
+    parser.add_argument('--balance',
+                        action='store_true')
     parser.add_argument('--fine_tune',
                         help=('Fine-tune the model from the weights stored in pretrained_weights.'),
                         action='store_true')
@@ -287,7 +291,7 @@ def main():
 
     train(args.config_file, args.train_map_file, args.val_map_file, args.train_data_path,
           val_data_path, args.dataset, checkpoint_path, args.restart, args.workers,
-          args.arch, args.backbone, args.pretrained_weights, args.fine_tune)
+          args.arch, args.backbone, args.pretrained_weights, args.fine_tune, args.balance)
 
 
 if __name__ == '__main__':

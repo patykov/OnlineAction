@@ -53,11 +53,13 @@ class Charades(data.Dataset):
         in the format: [label, video_path].
         """
         video_list = []
+        self.total_frames = 0
         with open(self.list_file) as f:
             reader = csv.DictReader(f)
             for row in reader:
                 vid = row['id']
                 actions = row['actions']
+                self.total_frames += int(float(row['length']) * self.FPS)
                 if actions == '':
                     actions = []
                 else:
@@ -67,19 +69,20 @@ class Charades(data.Dataset):
                 video_list.append([actions, vid])
 
         # Subset for tests!!!
-        # subset_list = [v for i, v in enumerate(video_list) if i % 10 == 0]
+        subset_list = [v for i, v in enumerate(video_list) if i % 10 == 0]
 
-        self.video_list = video_list
+        self.video_list = subset_list
 
     def get_weights(self):
-        targets = torch.FloatTensor(len(self.video_list), self.num_classes).zero_()
+        pos_frames_per_class = torch.FloatTensor(self.num_classes).zero_()
         for i, (label, _) in enumerate(self.video_list):
             for l in label:
-                targets[i, int(l['class'][1:])] = 1
-        per_label_sum = targets.sum(dim=0)
-        weights = per_label_sum.max() / per_label_sum
+                frame_start = int(l['start'] * self.FPS)
+                frame_end = int(l['end'] * self.FPS)
+                pos_frames_per_class[int(l['class'][1:])] += frame_end - frame_start
+        pos_weigth = torch.FloatTensor([(self.total_frames-p)/p for p in pos_frames_per_class])
 
-        return weights.cuda() if torch.cuda.is_available() else weights
+        return pos_weigth.cuda() if torch.cuda.is_available() else pos_weigth
 
     def _get_train_indices(self, record):
         """
@@ -205,6 +208,7 @@ class Charades(data.Dataset):
         fmt_str += '    Number of samples: {}\n'.format(self.__len__())
         fmt_str += '    Videos Location: {}\n'.format(self.root_path)
         fmt_str += '    Annotations file: {}\n'.format(self.list_file)
+        fmt_str += '    Test clips: {}\n'.format(self.test_clips) if self.mode != 'train' else ''
         tmp = ' (multi-label)' if self.multi_label else ''
         fmt_str += '    Number of classes: {}{}\n'.format(self.num_classes, tmp)
         tmp = '    Transforms (if any): '
