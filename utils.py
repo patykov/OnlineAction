@@ -31,7 +31,7 @@ def get_optimizer(model, lr_config, weight_decay, distributed=False):
 
     optimizer = optim.SGD(
         filter(lambda p: p.requires_grad, model.parameters()),
-        lr=initial_lr,
+        lr=initial_lr * hvd.size(),
         momentum=0.9,
         nesterov=True,
         weight_decay=weight_decay)
@@ -45,7 +45,6 @@ def get_optimizer(model, lr_config, weight_decay, distributed=False):
 
 
 def broadcast_scheduler_state(scheduler, root_rank):
-    import horovod.torch as hvd
     state = scheduler.state_dict()
     state['last_epoch'] = hvd.broadcast(
         torch.tensor(state['last_epoch']), root_rank=root_rank, name='last_epoch').item()
@@ -96,7 +95,6 @@ def get_dataloaders(dataset, train_file, val_file, train_data, val_data, batch_s
                           mode='val', causal=causal, test_clips=10)
 
     if distributed:
-        import horovod.torch as hvd
         train_sampler = torch.utils.data.distributed.DistributedSampler(
             train_dataset, num_replicas=hvd.size(), rank=hvd.rank())
         val_sampler = torch.utils.data.distributed.DistributedSampler(

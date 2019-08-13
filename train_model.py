@@ -36,15 +36,13 @@ def load_checkpoint(checkpoint_path, model, meta, optimizer, scheduler):
     scheduler.load_state_dict(chkpt_dict['scheduler'])
 
 
-def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
-              optimizer=None, scheduler=None):
+def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train, optimizer=None):
     """
     Iterate over the dataloader computing losses and metrics and, if `is_train=True`,
     updating model weights.
     """
     model.train(is_train)  # Set model to train/eval mode
     if is_train:
-        scheduler.step()
         optimizer.zero_grad()
         dataloader.sampler.set_epoch(epoch)
 
@@ -91,8 +89,8 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
     return running_loss.avg, metric
 
 
-def train(config_json, train_file, val_file, train_data, val_data, dataset, checkpoint_path,
-          restart=False, num_workers=4, arch='nonlocal_net', backbone='resnet50',
+def train(config_json, train_file, val_file, train_data, val_data, sample_frames, dataset,
+          checkpoint_path, restart=False, num_workers=4, arch='nonlocal_net', backbone='resnet50',
           pretrained_weights=None, fine_tune=True, balance=False):
 
     config = utils.parse_json(config_json)
@@ -103,7 +101,7 @@ def train(config_json, train_file, val_file, train_data, val_data, dataset, chec
     # Data loaders
     train_loader, val_loader = utils.get_dataloaders(
         dataset, train_file, val_file, train_data, val_data, config['batch_size'],
-        sample_frames=config['sample_frames'], num_workers=num_workers, distributed=True)
+        sample_frames=sample_frames, num_workers=num_workers, distributed=True)
     num_classes = train_loader.dataset.num_classes
     multi_label = train_loader.dataset.multi_label
 
@@ -114,7 +112,7 @@ def train(config_json, train_file, val_file, train_data, val_data, dataset, chec
     # Model
     model = get_model(arch=arch, backbone=backbone, pretrained_weights=pretrained_weights,
                       mode='train', num_classes=num_classes, non_local=config['nonlocal'],
-                      frame_num=config['sample_frames'], fine_tune=fine_tune, log_name='training')
+                      frame_num=sample_frames, fine_tune=fine_tune, log_name='training')
 
     # Epochs, optimizer, scheduler, criterion
     num_epochs, optimizer, scheduler = utils.get_optimizer(
@@ -161,7 +159,7 @@ def train(config_json, train_file, val_file, train_data, val_data, dataset, chec
             LOG.info('Batch size: {:d}'.format(config['batch_size']))
             LOG.info('Using {:d} workers for data loading\n'.format(num_workers))
             LOG.info('Saving results to {}\n'.format(os.path.abspath(checkpoint_path)))
-            # LOG.info(model)
+            LOG.info(model)
             LOG.info('\nNumber of trainable parameters: {}'.format(
                 sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
@@ -172,11 +170,11 @@ def train(config_json, train_file, val_file, train_data, val_data, dataset, chec
 
     initial_epoch = scheduler.last_epoch + 1
 
-    for epoch in range(initial_epoch, num_epochs+1):
+    for epoch in range(initial_epoch, num_epochs + 1):
         b = time.time()
         # Train for one epoch
         train_loss, train_metric = run_epoch(model, train_loader, epoch, num_epochs, criterion,
-                                             train_metric, True, optimizer, scheduler)
+                                             train_metric, True, optimizer)
         e1 = time.time()
 
         meta['loss'].append(train_loss)
@@ -190,6 +188,8 @@ def train(config_json, train_file, val_file, train_data, val_data, dataset, chec
 
         meta['val_loss'].append(val_loss)
         meta['val_metric'].append(val_metric.value)
+
+        scheduler.step()
 
         if hvd.rank() == 0:
             # Checkpoint with redundancy
@@ -246,7 +246,7 @@ def main():
     parser.add_argument('--outputdir',
                         help='Output directory for checkpoints and models',
                         default=None)
-    parser.add_argument('--sample_frames', type=int, default=8,
+    parser.add_argument('--sample_frames', type=int, default=32,
                         help='Number of frames to be sampled in the input.')
     parser.add_argument('--dataset', type=str, default='charades')
     parser.add_argument('--filename',
@@ -290,8 +290,9 @@ def main():
         utils.setup_logger('training', log_file)
 
     train(args.config_file, args.train_map_file, args.val_map_file, args.train_data_path,
-          val_data_path, args.dataset, checkpoint_path, args.restart, args.workers,
-          args.arch, args.backbone, args.pretrained_weights, args.fine_tune, args.balance)
+          val_data_path, args.sample_frames, args.dataset, checkpoint_path, args.restart,
+          args.workers, args.arch, args.backbone, args.pretrained_weights, args.fine_tune,
+          args.balance)
 
 
 if __name__ == '__main__':

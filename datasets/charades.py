@@ -31,7 +31,7 @@ class Charades(data.Dataset):
     multi_label = True
 
     def __init__(self, root_path, list_file, sample_frames=8, transform=None,
-                 mode='train', test_clips=10, causal=False):
+                 mode='train', test_clips=15, causal=False):
         self.root_path = root_path
         self.list_file = list_file
         self.sample_frames = sample_frames
@@ -69,9 +69,9 @@ class Charades(data.Dataset):
                 video_list.append([actions, vid])
 
         # Subset for tests!!!
-        subset_list = [v for i, v in enumerate(video_list) if i % 10 == 0]
+        # subset_list = [v for i, v in enumerate(video_list) if i % 10 == 0]
 
-        self.video_list = subset_list
+        self.video_list = video_list
 
     def get_weights(self):
         pos_frames_per_class = torch.FloatTensor(self.num_classes).zero_()
