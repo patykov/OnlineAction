@@ -12,6 +12,8 @@ class VideoRecord(object):
     def _get_num_frames(self):
         count = 0
         success, frame = self.video.read()
+        if not success:
+            print('Failed to load video {}'.format(self.path))
         while(success):
             success, frame = self.video.read()
             count += 1
