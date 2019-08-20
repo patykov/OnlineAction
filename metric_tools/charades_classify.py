@@ -69,7 +69,7 @@ def map_func(submission_array, gt_array):
         m_aps.append(avg_prec / n_pos.astype(float))
     m_aps = np.array(m_aps)
     m_ap = np.nanmean(m_aps)
-    w_ap = (m_aps * gt_array.sum(axis=0) / gt_array.sum().astype(float))
+    w_ap = sum(m_aps * gt_array.sum(axis=0) / gt_array.sum().astype(float))
     return m_ap, w_ap, m_aps
 
 

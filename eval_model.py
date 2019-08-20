@@ -3,6 +3,7 @@ import logging
 import os
 import time
 
+import horovod.torch as hvd
 import torch.nn.parallel
 
 import datasets
@@ -22,8 +23,14 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     Dataset = getattr(datasets, dataset.capitalize())
     dataset = Dataset(root_data_path, map_file, sample_frames=sample_frames,
                       mode=mode, causal=causal)
-    data_loader = torch.utils.data.DataLoader(
-        dataset, batch_size=1, shuffle=False, num_workers=workers)
+    if hvd.size() > 1:
+        sampler = torch.utils.data.distributed.DistributedSampler(
+            dataset, num_replicas=hvd.size(), rank=hvd.rank())
+        data_loader = torch.utils.data.DataLoader(
+            dataset, sampler=sampler, batch_size=1, num_workers=workers, pin_memory=True)
+    else:
+        data_loader = torch.utils.data.DataLoader(
+            dataset, batch_size=1, shuffle=False, num_workers=workers)
 
     total_num = len(dataset)
     data_gen = enumerate(data_loader, start=1)
@@ -37,12 +44,17 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
                       frame_num=sample_frames, log_name='eval')
     model.eval()
     model_time = time.time()
+
+    # Horovod: broadcast parameters.
+    hvd.broadcast_parameters(model.state_dict(), root_rank=0)
+
     LOG.info('Loading model took {:.3f}s'.format(model_time - data_time))
     LOG.debug(model)
 
-    metric = m.Video_mAP('test_metric') if dataset.multi_label else m.Video_Accuracy('test_metric')
-    batch_time = m.AverageMeter()
-    data_time = m.AverageMeter()
+    metric = m.Video_mAP('test_metric', m.mAP) if dataset.multi_label else m.Video_Accuracy(
+        'test_metric', m.Top5)
+    batch_time = m.AverageMeter('batch_time')
+    data_time = m.AverageMeter('data_time')
     with torch.no_grad():
 
         end = time.time()
@@ -51,8 +63,8 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
             data_time.update(time.time() - end)
 
             data = data.squeeze(0).cuda()
-            rst = model(data).cpu()
-            metric.add(rst, label)
+            output = model(data).cpu()
+            metric.add(output.mean(0), label)
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -111,8 +123,13 @@ if __name__ == '__main__':
     log_file = base_name + '.log'
     results_file = base_name + '.txt'
 
-    setup_logger('eval', log_file)
-    setup_logger('results', results_file)
+    # Initialize horovod
+    hvd.init()
+    torch.cuda.set_device(hvd.local_rank())
+
+    if hvd.rank() == 0:
+        setup_logger('eval', log_file)
+        setup_logger('results', results_file)
 
     eval(args.map_file, args.root_data_path, args.pretrained_weights, args.arch, args.backbone,
          args.baseline, args.causal, args.mode, args.dataset, args.sample_frames, args.workers)

@@ -31,7 +31,7 @@ def get_optimizer(model, lr_config, weight_decay, distributed=False):
 
     optimizer = optim.SGD(
         filter(lambda p: p.requires_grad, model.parameters()),
-        lr=initial_lr * hvd.size(),
+        lr=initial_lr,
         momentum=0.9,
         nesterov=True,
         weight_decay=weight_decay)
@@ -86,15 +86,16 @@ def parse_json(json_file):
 
 
 def get_dataloaders(dataset, train_file, val_file, train_data, val_data, batch_size,
-                    sample_frames=8, num_workers=4, distributed=False, causal=False):
+                    sample_frames=8, num_workers=4, distributed=False, causal=False, subset=False):
     Dataset = getattr(datasets, dataset.capitalize())
 
     train_dataset = Dataset(train_data, train_file, sample_frames=sample_frames,
-                            mode='train', causal=causal)
+                            mode='train', causal=causal, subset=subset)
     val_dataset = Dataset(val_data, val_file, sample_frames=sample_frames,
-                          mode='val', causal=causal, test_clips=10)
+                          mode='val', causal=causal, test_clips=10, subset=subset)
 
     if distributed:
+        import horovod.torch as hvd
         train_sampler = torch.utils.data.distributed.DistributedSampler(
             train_dataset, num_replicas=hvd.size(), rank=hvd.rank())
         val_sampler = torch.utils.data.distributed.DistributedSampler(

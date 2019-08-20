@@ -21,6 +21,6 @@ def test_charades_map():
 
     assert np.isclose(float(data['map']), mAP)
 
-    # assert np.isclose(float(data['wap']), wAP)
+    assert np.isclose(float(data['wap']), wAP)
 
     assert np.allclose(np.array(data['ap_all'], dtype=float), ap, atol=1e-04)

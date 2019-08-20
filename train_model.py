@@ -43,12 +43,11 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
     """
     model.train(is_train)  # Set model to train/eval mode
     if is_train:
-        optimizer.zero_grad()
         dataloader.sampler.set_epoch(epoch)
 
-    running_loss = m.AverageMeter()
     offset = 0
     metric.reset()
+    running_loss = m.AverageMeter('running_loss')
 
     with tqdm(
             desc='\nEpoch {}/{} - {}'.format(epoch, num_epochs, 'Train' if is_train else 'Val'),
@@ -72,26 +71,26 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
                 running_loss.update(loss, batch_samples)
                 metric.add(outputs, targets)
 
-                if metric.count - offset >= t.total // 10:  # Update progressbar every 10%
+                if running_loss.count - offset >= t.total // 10:  # Update progressbar every 10%
                     t.set_postfix({
                         'loss': '{:.4f}'.format(running_loss.avg),
                         str(metric): '{:.3f}'.format(metric.value)
                     }, refresh=False)
-                    t.update(metric.count - offset)
-                    offset = metric.count
+                    t.update(running_loss.count - offset)
+                    offset = running_loss.count
 
                 # Update weights
                 if is_train:
+                    optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
-                    optimizer.zero_grad()
 
-    return running_loss.avg, metric
+    return running_loss
 
 
 def train(config_json, train_file, val_file, train_data, val_data, sample_frames, dataset,
           checkpoint_path, restart=False, num_workers=4, arch='nonlocal_net', backbone='resnet50',
-          pretrained_weights=None, fine_tune=True, balance=False):
+          pretrained_weights=None, fine_tune=True, balance=False, subset=False):
 
     config = utils.parse_json(config_json)
 
@@ -101,7 +100,7 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
     # Data loaders
     train_loader, val_loader = utils.get_dataloaders(
         dataset, train_file, val_file, train_data, val_data, config['batch_size'],
-        sample_frames=sample_frames, num_workers=num_workers, distributed=True)
+        sample_frames=sample_frames, num_workers=num_workers, distributed=True, subset=subset)
     num_classes = train_loader.dataset.num_classes
     multi_label = train_loader.dataset.multi_label
 
@@ -119,12 +118,11 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
         model, config['learning_rate'], config['weight_decay'], distributed=True)
 
     if multi_label:
-        pos_weight = train_loader.dataset.get_weights()
+        pos_weight = train_loader.dataset.get_weights() if balance else None
 
         def criterion(outputs, labels):
             return F.binary_cross_entropy_with_logits(
-                outputs, labels.type_as(outputs),
-                pos_weight=pos_weight if balance else None)
+                outputs, labels.type_as(outputs), pos_weight=pos_weight)
     else:
 
         def criterion(outputs, labels):
@@ -156,37 +154,42 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
             LOG.info('Weight decay: {:g}\n'.format(config['weight_decay']))
             LOG.info(train_loader.dataset)
             LOG.info(val_loader.dataset)
+            if multi_label:
+                LOG.info('Criterion with{} balanced weights (pos_weight)'.format(
+                    'out' if pos_weight is None else ''))
             LOG.info('Batch size: {:d}'.format(config['batch_size']))
             LOG.info('Using {:d} workers for data loading\n'.format(num_workers))
             LOG.info('Saving results to {}\n'.format(os.path.abspath(checkpoint_path)))
             LOG.info(model)
             LOG.info('\nNumber of trainable parameters: {}'.format(
                 sum(p.numel() for p in model.parameters() if p.requires_grad)))
+            LOG.info('Using {:d} horovod process{}'.format(hvd.size(),
+                                                           'es' if hvd.size() > 1 else ''))
 
     # Horovod: broadcast parameters & optimizer state.
     hvd.broadcast_parameters(model.state_dict(), root_rank=0)
     hvd.broadcast_optimizer_state(optimizer, root_rank=0)
     utils.broadcast_scheduler_state(scheduler, root_rank=0)
 
-    initial_epoch = scheduler.last_epoch + 1
+    initial_epoch = scheduler.last_epoch
 
-    for epoch in range(initial_epoch, num_epochs + 1):
+    for epoch in range(initial_epoch, num_epochs):
         b = time.time()
         # Train for one epoch
-        train_loss, train_metric = run_epoch(model, train_loader, epoch, num_epochs, criterion,
-                                             train_metric, True, optimizer)
+        train_loss = run_epoch(model, train_loader, epoch, num_epochs, criterion,
+                               train_metric, True, optimizer)
         e1 = time.time()
 
-        meta['loss'].append(train_loss)
+        meta['loss'].append(train_loss.avg)
         meta['metric'].append(train_metric.value)
 
         # Validate
         b2 = time.time()
-        val_loss, val_metric = run_epoch(model, val_loader, epoch, num_epochs, criterion,
-                                         val_metric, False)
+        val_loss = run_epoch(model, val_loader, epoch, num_epochs, criterion,
+                             val_metric, False)
         e = time.time()
 
-        meta['val_loss'].append(val_loss)
+        meta['val_loss'].append(val_loss.avg)
         meta['val_metric'].append(val_metric.value)
 
         scheduler.step()
@@ -200,25 +203,25 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
             train_time = e1 - b
             val_time = e - b2
 
-            prefix = 'Epoch {}/{} - '.format(epoch, num_epochs)
+            prefix = 'Epoch {}/{} - '.format(epoch + 1, num_epochs)
             tmp = ('{prefix}{phase:>5}: loss = {loss:.4f}, {metric} = {metric_value:.4f}.'
                    ' {phase} time: {time:.2f}s ({rate:.2f} samples/s)')
             train_string = tmp.format(
                 prefix=prefix,
                 phase='Train',
-                loss=train_loss,
+                loss=train_loss.avg,
                 metric=train_metric,
                 metric_value=train_metric.value,
                 time=train_time,
-                rate=train_metric.count / train_time)
+                rate=train_loss.count / train_time)
             val_string = tmp.format(
                 prefix=' ' * len(prefix),
                 phase='Val',
-                loss=val_loss,
+                loss=val_loss.avg,
                 metric=val_metric,
                 metric_value=val_metric.value,
                 time=val_time,
-                rate=val_metric.count / val_time)
+                rate=val_loss.count / val_time)
             LOG.info('{}\n{}'.format(train_string, val_string))
 
 
@@ -258,6 +261,8 @@ def main():
                         action='store_true')
     parser.add_argument('--balance',
                         action='store_true')
+    parser.add_argument('--subset',
+                        action='store_true')
     parser.add_argument('--fine_tune',
                         help=('Fine-tune the model from the weights stored in pretrained_weights.'),
                         action='store_true')
@@ -292,7 +297,7 @@ def main():
     train(args.config_file, args.train_map_file, args.val_map_file, args.train_data_path,
           val_data_path, args.sample_frames, args.dataset, checkpoint_path, args.restart,
           args.workers, args.arch, args.backbone, args.pretrained_weights, args.fine_tune,
-          args.balance)
+          args.balance, args.subset)
 
 
 if __name__ == '__main__':

@@ -31,7 +31,7 @@ class Charades(data.Dataset):
     multi_label = True
 
     def __init__(self, root_path, list_file, sample_frames=8, transform=None,
-                 mode='train', test_clips=15, causal=False):
+                 mode='train', test_clips=15, causal=False, subset=False):
         self.root_path = root_path
         self.list_file = list_file
         self.sample_frames = sample_frames
@@ -39,6 +39,7 @@ class Charades(data.Dataset):
         self.mode = mode
         self.test_clips = test_clips
         self.causal = causal
+        self.subset = subset
 
         if transform is not None:
             self.transform = transform
@@ -68,14 +69,15 @@ class Charades(data.Dataset):
                         y), 'end': float(z)} for x, y, z in actions]
                 video_list.append([actions, vid])
 
-        # Subset for tests!!!
-        # subset_list = [v for i, v in enumerate(video_list) if i % 10 == 0]
+        if self.subset:
+            # Subset for tests!!!
+            video_list = [v for i, v in enumerate(video_list) if i % 10 == 0]
 
         self.video_list = video_list
 
     def get_weights(self):
         pos_frames_per_class = torch.FloatTensor(self.num_classes).zero_()
-        for i, (label, _) in enumerate(self.video_list):
+        for label, _ in self.video_list:
             for l in label:
                 frame_start = int(l['start'] * self.FPS)
                 frame_end = int(l['end'] * self.FPS)
@@ -182,7 +184,7 @@ class Charades(data.Dataset):
         elif self.mode == 'test':
             cropping = torchvision.transforms.Compose([
                 t.GroupResize(256),
-                t.GroupFullyConv(320)
+                t.GroupFullyConv(224)
             ])
         elif self.mode == 'train':
             cropping = torchvision.transforms.Compose([
