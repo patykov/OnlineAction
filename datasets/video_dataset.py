@@ -6,6 +6,7 @@ class VideoRecord(object):
     def __init__(self, video_path, label):
         self.path = video_path
         self.video = cv2.VideoCapture(self.path)
+        self.fps = self.video.get(cv2.CAP_PROP_FPS)
         self.num_frames = self._get_num_frames()
         self.label = label
 
