@@ -54,13 +54,11 @@ class Charades(data.Dataset):
         in the format: [label, video_path].
         """
         video_list = []
-        self.total_frames = 0
         with open(self.list_file) as f:
             reader = csv.DictReader(f)
             for row in reader:
                 vid = row['id']
                 actions = row['actions']
-                self.total_frames += int(float(row['length']) * self.FPS)
                 if actions == '':
                     actions = []
                 else:
@@ -69,22 +67,10 @@ class Charades(data.Dataset):
                         y), 'end': float(z)} for x, y, z in actions]
                 video_list.append([actions, vid])
 
-        if self.subset:
-            # Subset for tests!!!
+        if self.subset:  # Subset for tests!!!
             video_list = [v for i, v in enumerate(video_list) if i % 10 == 0]
 
         self.video_list = video_list
-
-    def get_weights(self):
-        pos_frames_per_class = torch.FloatTensor(self.num_classes).zero_()
-        for label, _ in self.video_list:
-            for l in label:
-                frame_start = int(l['start'] * self.FPS)
-                frame_end = int(l['end'] * self.FPS)
-                pos_frames_per_class[int(l['class'][1:])] += frame_end - frame_start
-        pos_weigth = torch.FloatTensor([(self.total_frames-p)/p for p in pos_frames_per_class])
-
-        return pos_weigth.cuda() if torch.cuda.is_available() else pos_weigth
 
     def _get_train_indices(self, record):
         """
@@ -210,7 +196,7 @@ class Charades(data.Dataset):
         fmt_str += '    Number of samples: {}\n'.format(self.__len__())
         fmt_str += '    Videos Location: {}\n'.format(self.root_path)
         fmt_str += '    Annotations file: {}\n'.format(self.list_file)
-        fmt_str += '    Test clips: {}\n'.format(self.test_clips) if self.mode != 'train' else ''
+        fmt_str += '    Test clips: {}\n'.format(self.test_clips) if self.mode == 'test' else ''
         tmp = ' (multi-label)' if self.multi_label else ''
         fmt_str += '    Number of classes: {}{}\n'.format(self.num_classes, tmp)
         tmp = '    Transforms (if any): '
@@ -220,7 +206,7 @@ class Charades(data.Dataset):
         return fmt_str
 
 
-def get_charades_pos_weights(list_file, root_path, output_dir):
+def calculate_charades_pos_weight(list_file, root_path, output_dir):
     video_list = []
     total_frames = 0
     with open(list_file) as f:
@@ -240,10 +226,10 @@ def get_charades_pos_weights(list_file, root_path, output_dir):
             record = VideoRecord(os.path.join(root_path, vid+'.mp4'), actions)
             total_frames += int(float(length) * record.fps)
 
-            video_list.append([actions, vid, record.fps])
+            video_list.append([actions, record.fps])
 
     pos_frames_per_class = torch.FloatTensor(157).zero_()
-    for label, _, fps in video_list:
+    for label, fps in video_list:
         for l in label:
             frame_start = int(l['start'] * fps)
             frame_end = int(l['end'] * fps)

@@ -62,40 +62,6 @@ class GroupCenterCrop(object):
         return '{} (Size: {})'.format(self.__class__.__name__, self.size)
 
 
-class ConditionedGroupCenterCrop(object):
-
-    def __init__(self, max_size=808, sec_size=256):
-        self.max_size = max_size
-        self.sec_size = sec_size
-        self.w_worker = torchvision.transforms.CenterCrop((sec_size, self.max_size))
-        self.h_worker = torchvision.transforms.CenterCrop((self.max_size, sec_size))
-
-    def __call__(self, img_group):
-        w, h = img_group[0].size
-
-        if w > self.max_size:
-            print('\nNeed to crop width dimention! Image size from: {}x{} to {}x{}\n'.format(
-                w, h, self.max_size, self.sec_size))
-            return [self.w_worker(img) for img in img_group]
-        elif h > self.max_size:
-            print('\nNeed to crop heigth dimention! Image size from: {}x{} to {}x{}\n'.format(
-                w, h, self.sec_size, self.max_size))
-            return [self.h_worker(img) for img in img_group]
-        else:
-            return img_group
-
-
-class GroupTenCrop(object):
-
-    def __init__(self, size):
-        self.worker = torchvision.transforms.TenCrop(size)
-
-    def __call__(self, img_group):
-        cropped_imgs = [self.worker(img) for img in img_group]
-        reordered_imgs = [[group[i] for group in cropped_imgs] for i in range(10)]
-        return [img for sublist in reordered_imgs for img in sublist]
-
-
 class GroupRandomHorizontalFlip(object):
 
     def __call__(self, img_group):

@@ -70,7 +70,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
             batch_time.update(time.time() - end)
             end = time.time()
 
-            if i % 10 == 0:
+            if i % 50 == 0:
                 LOG.info('Video {}/{} ({:.02f}%) | '
                          'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
                          'Data {data_time.val:.3f}s ({data_time.avg:.3f}s avg.) | '
@@ -83,7 +83,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     LOG.info('\n{}'.format(metric))
 
 
-if __name__ == '__main__':
+def main():
     # options
     parser = argparse.ArgumentParser()
     parser.add_argument('--map_file', type=str)
@@ -133,3 +133,7 @@ if __name__ == '__main__':
 
     eval(args.map_file, args.root_data_path, args.pretrained_weights, args.arch, args.backbone,
          args.baseline, args.causal, args.mode, args.dataset, args.sample_frames, args.workers)
+
+
+if __name__ == '__main__':
+    main()

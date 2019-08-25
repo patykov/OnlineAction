@@ -22,7 +22,8 @@ class AverageMeter:
     @torch.no_grad()
     def update(self, val, n=1):
         self.val = val
-        self.sum += hvd.allreduce(val, average=False, name=self.name + '_sum').item()
+        self.sum += hvd.allreduce(
+            torch.tensor(val), average=False, name=self.name + '_sum').item()
         self.count += hvd.allreduce(
             torch.tensor(n), average=False, name=self.name + '_count').item()
         self.avg = self.sum / self.count
@@ -95,8 +96,8 @@ class mAP(Metric):
 
 
 class Video_Wrapper:
-    """ Metric class wrapper that storages the model predictions for video level evaluation in a
-    text format."""
+    """ Metric wrapper that storages model predictions at video level evaluation in a text
+    format."""
     def __init__(self, name, metric):
         self.metric = metric(name)
         self.reset()
@@ -135,7 +136,7 @@ class Video_Accuracy(Video_Wrapper):
 
     def update_text(self, output, target):
         self.text += '{:^5} | {:^20}\n'.format(target['target'][0], np.array2string(
-            self.metric.top5[-1].numpy(), separator=', ')[1:-1])
+            self.metric.predictions[1][-1].numpy(), separator=', ')[1:-1])
 
 
 def get_accuracy(predictions, labels):
