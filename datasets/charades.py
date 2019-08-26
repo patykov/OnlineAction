@@ -26,7 +26,6 @@ class Charades(data.Dataset):
     """
     input_mean = [0.485, 0.456, 0.406]
     input_std = [0.229, 0.224, 0.225]
-    FPS, GAP = 24, 4
     num_classes = 157
     multi_label = True
 
@@ -118,13 +117,6 @@ class Charades(data.Dataset):
         target = torch.IntTensor(self.num_classes).zero_()
         for l in record.label:
             target[int(l['class'][1:])] = 1
-        # target = torch.IntTensor(self.test_clips, self.num_classes).zero_()
-        # for cid in range(0, self.test_clips, self.sample_frames):
-        #     clip_offsets = offsets[cid: cid+self.sample_frames]
-        #     for frame in clip_offsets:
-        #         for l in record.label:
-        #             if l['start'] < frame/float(record.fps) < l['end']:
-        #                 target[cid, int(l['class'][1:])] = 1
 
         return offsets, target
 
@@ -154,7 +146,7 @@ class Charades(data.Dataset):
         uniq_id = np.unique(indices)
         uniq_imgs = record.get_frames(uniq_id)
 
-        if None in uniq_imgs:
+        if uniq_imgs is None:
             return None
 
         images = [uniq_imgs[i] for i in indices]
@@ -183,7 +175,6 @@ class Charades(data.Dataset):
             cropping = torchvision.transforms.Compose([
                 t.GroupRandomResize(256, 320),
                 t.GroupRandomCrop(224),
-                t.GroupResize(288),
                 t.GroupRandomHorizontalFlip()
             ])
         else:

@@ -31,18 +31,3 @@ def get_model(arch, backbone, pretrained_weights, mode, num_classes, non_local, 
         model.cuda()
 
     return model
-
-
-def get_loss(criterion='sigmoid_criterion', balance_loss=True):
-    """ Define the loss function. """
-    criterion = case_getattr(import_module('models.criteria.' + criterion), criterion)
-    criterion = criterion(balance_loss)
-
-    return criterion
-
-
-def case_getattr(obj, attr):
-    casemap = {}
-    for x in obj.__dict__:
-        casemap[x.lower().replace('_', '')] = x
-    return getattr(obj, casemap[attr.lower().replace('_', '')])

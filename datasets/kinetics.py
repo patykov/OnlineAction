@@ -93,7 +93,7 @@ class Kinetics(data.Dataset):
         label, video_path = self.video_list[index]
         record = VideoRecord(os.path.join(self.root_path, video_path), label)
 
-        if self.mode == 'train':
+        if self.mode in ['train', 'val']:
             segment_indices = self._get_train_indices(record)
             process_data = self.get(record, segment_indices)
             while process_data is None:
@@ -115,7 +115,7 @@ class Kinetics(data.Dataset):
         uniq_id = np.unique(indices)
         uniq_imgs = record.get_frames(uniq_id)
 
-        if None in uniq_imgs:
+        if uniq_imgs is None:
             return None
 
         images = [uniq_imgs[i] for i in indices]
