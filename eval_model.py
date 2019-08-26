@@ -5,6 +5,7 @@ import time
 
 import horovod.torch as hvd
 import torch.nn.parallel
+from torch.nn import MaxPool1d, AvgPool1d
 
 import datasets
 import metric_tools.metrics as m
@@ -45,6 +46,26 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     model.eval()
     model_time = time.time()
 
+    if dataset.multi_label:
+        def video_output(outputs):
+            max_pool = MaxPool1d(dataset.test_clips)
+            avg_pool = AvgPool1d(3)
+
+            data = outputs.view(1, -1, dataset.num_classes).contiguous()
+            data = data.permute(0, 2, 1).contiguous()
+
+            data = max_pool(data)
+            if mode == 'test':
+                # During test, fullyconv transform takes 3 random crops of each clip
+                data = avg_pool(data)
+            video_data = data.view(-1, dataset.num_classes).contiguous()
+
+            return video_data
+
+    else:
+        def video_output(outputs):
+            return outputs.mean(0)
+
     # Horovod: broadcast parameters.
     hvd.broadcast_parameters(model.state_dict(), root_rank=0)
 
@@ -64,19 +85,18 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
 
             data = data.squeeze(0).cuda()
             output = model(data).cpu()
-            metric.add(output.mean(0), label)
+            metric.add(video_output(output), label)
 
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
-
             if i % 50 == 0:
                 LOG.info('Video {}/{} ({:.02f}%) | '
                          'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
                          'Data {data_time.val:.3f}s ({data_time.avg:.3f}s avg.) | '
                          '{metric}'.format(
-                             i, total_num, i*100/total_num, batch_time=batch_time,
-                             data_time=data_time, metric=metric))
+                            i, total_num, i*100/total_num, batch_time=batch_time,
+                            data_time=data_time, metric=metric))
                 RESULTS.debug(metric.to_text())
 
     RESULTS.debug(metric.to_text())

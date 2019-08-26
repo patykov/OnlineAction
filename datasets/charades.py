@@ -118,12 +118,19 @@ class Charades(data.Dataset):
         target = torch.IntTensor(self.num_classes).zero_()
         for l in record.label:
             target[int(l['class'][1:])] = 1
+        # target = torch.IntTensor(self.test_clips, self.num_classes).zero_()
+        # for cid in range(0, self.test_clips, self.sample_frames):
+        #     clip_offsets = offsets[cid: cid+self.sample_frames]
+        #     for frame in clip_offsets:
+        #         for l in record.label:
+        #             if l['start'] < frame/float(record.fps) < l['end']:
+        #                 target[cid, int(l['class'][1:])] = 1
 
         return offsets, target
 
     def __getitem__(self, index):
         label, video_path = self.video_list[index]
-        record = VideoRecord(os.path.join(self.root_path, video_path+'.mp4'), label)
+        record = VideoRecord(os.path.join(self.root_path, video_path+'.mp4'), label, reliable=True)
 
         if self.mode in ['train', 'val']:
             segment_indices, target = self._get_train_indices(record)
@@ -214,7 +221,6 @@ def calculate_charades_pos_weight(list_file, root_path, output_dir):
         for row in reader:
             vid = row['id']
             actions = row['actions']
-            length = row['length']
 
             if actions == '':
                 actions = []
@@ -224,16 +230,16 @@ def calculate_charades_pos_weight(list_file, root_path, output_dir):
                     y), 'end': float(z)} for x, y, z in actions]
 
             record = VideoRecord(os.path.join(root_path, vid+'.mp4'), actions)
-            total_frames += int(float(length) * record.fps)
+            total_frames += int(float(row['length']) * record.fps)
 
             video_list.append([actions, record.fps])
 
-    pos_frames_per_class = torch.FloatTensor(157).zero_()
+    positive_frames_per_class = torch.FloatTensor(157).zero_()
     for label, fps in video_list:
         for l in label:
             frame_start = int(l['start'] * fps)
             frame_end = int(l['end'] * fps)
-            pos_frames_per_class[int(l['class'][1:])] += frame_end - frame_start
-    pos_weigth = torch.FloatTensor([(total_frames-p)/p for p in pos_frames_per_class])
+            positive_frames_per_class[int(l['class'][1:])] += frame_end - frame_start
+    pos_weigth = torch.FloatTensor([(total_frames-p)/p for p in positive_frames_per_class])
 
     torch.save(pos_weigth, os.path.join(output_dir, 'charades_pos_weight.pt'))

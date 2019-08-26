@@ -61,14 +61,11 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
 
                 # Get outputs
                 outputs = model(data.view(-1, *data.shape[2:]).contiguous().cuda())
-                if not is_train:  # Get mean of video clips
-                    outputs = outputs.view(
-                        batch_samples, -1, label['target'].size(1)).contiguous().mean(1)
                 targets = label['target'].cuda()
 
                 # Compute loss and metrics
                 loss = criterion(outputs, targets)
-                running_loss.update(loss, batch_samples)
+                running_loss.update(loss.item(), batch_samples)
                 metric.add(outputs, targets)
 
                 if running_loss.count - offset >= t.total // 10:  # Update progressbar every 10%
@@ -90,7 +87,7 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
 
 def train(config_json, train_file, val_file, train_data, val_data, sample_frames, dataset,
           checkpoint_path, restart=False, num_workers=4, arch='nonlocal_net', backbone='resnet50',
-          pretrained_weights=None, fine_tune=True, balance=False, subset=False):
+          pretrained_weights=None, fine_tune=True, pos_weight_file=False, subset=False):
 
     config = utils.parse_json(config_json)
 
@@ -118,7 +115,7 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
         model, config['learning_rate'], config['weight_decay'], distributed=True)
 
     if multi_label:
-        pos_weight = train_loader.dataset.get_weights() if balance else None
+        pos_weight = torch.load(pos_weight_file).cuda() if pos_weight_file else None
 
         def criterion(outputs, labels):
             return F.binary_cross_entropy_with_logits(
@@ -246,6 +243,7 @@ def main():
     parser.add_argument('--arch', type=str, default='nonlocal_net')
     parser.add_argument('--backbone', type=str, default='resnet50')
     parser.add_argument('--pretrained_weights', type=str, default=None)
+    parser.add_argument('--pos_weights', type=str, default=None)
     parser.add_argument('--outputdir',
                         help='Output directory for checkpoints and models',
                         default=None)
@@ -258,8 +256,6 @@ def main():
     parser.add_argument('--restart',
                         help=('Restart from scratch (instead of restarting from checkpoint ',
                               'file by default)'),
-                        action='store_true')
-    parser.add_argument('--balance',
                         action='store_true')
     parser.add_argument('--subset',
                         action='store_true')
@@ -297,7 +293,7 @@ def main():
     train(args.config_file, args.train_map_file, args.val_map_file, args.train_data_path,
           val_data_path, args.sample_frames, args.dataset, checkpoint_path, args.restart,
           args.workers, args.arch, args.backbone, args.pretrained_weights, args.fine_tune,
-          args.balance, args.subset)
+          args.pos_weights, args.subset)
 
 
 if __name__ == '__main__':

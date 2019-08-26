@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 from bisect import bisect_right
@@ -70,14 +71,15 @@ def recursive_update(d, u):
 
 
 def parse_json(json_file):
+    if not os.path.isabs(json_file):
+        json_file = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), 'config_files', json_file)
     with open(json_file, 'r') as f:
         data = json.load(f)
     default_values = {
-        'freeze': False,
-        'sample_frames': 0,
         'nonlocal': True,
         'weight_decay': 1e-4,
-        'learning_rate': [[10, 0.1], [10, 0.01]],
+        'learning_rate': [[10, 0.1], [10, 0.001], [10, 0.0001]],
         'batch_size': 8
     }
     default_values = recursive_update(default_values, data)

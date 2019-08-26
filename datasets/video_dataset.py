@@ -3,22 +3,29 @@ from PIL import Image
 
 
 class VideoRecord(object):
-    def __init__(self, video_path, label):
+    def __init__(self, video_path, label, reliable=False):
         self.path = video_path
+        self.label = label
         self.video = cv2.VideoCapture(self.path)
         self.fps = self.video.get(cv2.CAP_PROP_FPS)
-        self.num_frames = self._get_num_frames()
-        self.label = label
+        self.num_frames = self._get_num_frames(reliable)
 
-    def _get_num_frames(self):
-        count = 0
+    def _get_num_frames(self, reliable):
         success, frame = self.video.read()
         if not success:
             print('Failed to load video {}'.format(self.path))
+
+        if reliable:
+            # Fastest and easiest way to get video frame count. However, it does not work for
+            # Kinetics dataset, where most videos have a mismatch in the frame count.
+            return self.video.get(cv2.CAP_PROP_FRAME_COUNT)
+
+        # Counting manually
+        count = 0
         while(success):
             success, frame = self.video.read()
             count += 1
-        self.video.set(2, 0)
+        self.video.set(cv2.CAP_PROP_POS_AVI_RATIO, 0)  # Set video to the start
         return count
 
     def get_frames(self, indices):
