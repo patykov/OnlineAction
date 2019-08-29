@@ -57,30 +57,51 @@ class Metric:
         raise NotImplementedError
 
 
+class Accuracy(Metric):
+    def __init__(self):
+        super().__init__('accuracy')
+
+    def _add(self, output, target):
+        _, top_pred = torch.topk(output, 1)
+
+        self.targets.append(
+            hvd.allgather(torch.stack([target.cpu()], dim=1), name=self.name + '_target'))
+        self.predictions.append(hvd.allgather(top_pred.cpu(), name=self.name + '_top_pred'))
+
+    def _get_value(self):
+        return get_accuracy(np.vstack(self.predictions), np.vstack(self.targets))
+
+    def __repr__(self):
+        return '{:.02%}'.format(self.value)
+
+
 class Top5(Metric):
+    def __init__(self):
+        super().__init__('accuracy (t1/t5)')
+
     def _add(self, output, target):
         _, top5_pred = torch.topk(output, 5)
 
-        top1 = top5_pred[0]
-        top5 = target if target in top5_pred else top5_pred[0]
-
-        self.targets.append(hvd.allgather(target.cpu(), name=self.name + '_target'))
-        self.predictions.append([
-            hvd.allgather(top1.cpu(), name=self.name + '_top1'),
-            hvd.allgather(top5.cpu(), name=self.name + '_top5')
-        ])
+        self.targets.append(
+            hvd.allgather(torch.stack([target.cpu()], dim=1), name=self.name + '_target'))
+        self.predictions.append(hvd.allgather(top5_pred.cpu(), name=self.name + '_top5_pred'))
 
     def _get_value(self):
-        predictions = np.array(self.predictions)
-        acc1 = get_accuracy(np.vstack(predictions[:, 0]), np.vstack(self.targets))
-        acc5 = get_accuracy(np.vstack(predictions[:, 1]), np.vstack(self.targets))
+        predictions = np.vstack(self.predictions)
+        targets = np.vstack(self.targets)
+        acc1 = get_accuracy(predictions[:, 0], targets)
+        acc5 = get_accuracy([t.item() if t in p else p[0] for p, t in zip(
+            predictions, targets)], targets)
         return acc1, acc5
 
     def __repr__(self):
-        return 'accuracy (top1/top5)'
+        return '{:.02%} / {:.02%}'.format(*self.value)
 
 
 class mAP(Metric):
+    def __init__(self):
+        super().__init__('mAP')
+
     def _add(self, output, target):
         prediction = torch.sigmoid(output)
 
@@ -92,14 +113,14 @@ class mAP(Metric):
         return mAP
 
     def __repr__(self):
-        return 'mAP'
+        return '{:.02%}'.format(self.value)
 
 
 class Video_Wrapper:
     """ Metric wrapper that storages model predictions at video level evaluation in a text
     format."""
-    def __init__(self, name, metric):
-        self.metric = metric(name)
+    def __init__(self, metric):
+        self.metric = metric()
         self.reset()
 
     def reset(self):
@@ -114,7 +135,7 @@ class Video_Wrapper:
         raise NotImplementedError()
 
     def __repr__(self):
-        return '{}: {:.5f}'.format(self.metric, self.metric.value)
+        return str(self.metric)
 
     def to_text(self):
         partial_results = self.text[:-2]  # Removing last '\n'
@@ -134,9 +155,9 @@ class Video_Accuracy(Video_Wrapper):
         self.text = '{:^5} | {:^20}\n'.format('Label', 'Top5 predition')
         self.metric.reset()
 
-    def update_text(self, output, target):
+    def update_text(self, target):
         self.text += '{:^5} | {:^20}\n'.format(target['target'][0], np.array2string(
-            self.metric.predictions[1][-1].numpy(), separator=', ')[1:-1])
+            self.metric.predictions[-1].numpy(), separator=', ')[1:-1])
 
 
 def get_accuracy(predictions, labels):
@@ -146,4 +167,4 @@ def get_accuracy(predictions, labels):
     cls_hit = np.diag(cf)
     cls_acc = [h/c if c > 0 else 0.00 for (h, c) in zip(cls_hit, cls_cnt)]
 
-    return np.mean(cls_acc) * 100
+    return np.mean(cls_acc)

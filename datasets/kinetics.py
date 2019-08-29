@@ -20,7 +20,6 @@ class Kinetics(data.Dataset):
         transform: A function that takes in an PIL image and returns a transformed version.
         mode: Set the dataset mode as 'train', 'val' or 'test'.
         test_clips: Number of clips to be evenly sample from each full-length video for evaluation.
-        causal: If True, sets the evaluation to causal mode.
     """
     input_mean = [0.485, 0.456, 0.406]
     input_std = [0.229, 0.224, 0.225]
@@ -28,14 +27,14 @@ class Kinetics(data.Dataset):
     multi_label = False
 
     def __init__(self, root_path, list_file, sample_frames=32, transform=None,
-                 mode='train', test_clips=10, causal=False):
+                 mode='train', test_clips=10, subset=False):
         self.root_path = root_path
         self.list_file = list_file
         self.sample_frames = sample_frames
         self.stride = 2 if self.sample_frames == 32 else 8
         self.mode = mode
         self.test_clips = test_clips
-        self.causal = causal
+        self.subset = subset
 
         if transform is not None:
             self.transform = transform
@@ -49,7 +48,12 @@ class Kinetics(data.Dataset):
         Parses the annotation file to create a list of the videos relative path and their labels
         in the format: [label, video_path].
         """
-        self.video_list = [x.strip().split(' ') for x in open(self.list_file)]
+        video_list = [x.strip().split(' ') for x in open(self.list_file)]
+
+        if self.subset:  # Subset for tests!!!
+            video_list = [v for i, v in enumerate(video_list) if i % 100 == 0]
+
+        self.video_list = video_list
 
     def _get_train_indices(self, record):
         """
@@ -95,17 +99,16 @@ class Kinetics(data.Dataset):
 
         if self.mode in ['train', 'val']:
             segment_indices = self._get_train_indices(record)
-            process_data = self.get(record, segment_indices)
-            while process_data is None:
+            data = self.get(record, segment_indices)
+            while data is None:
                 index = randint(0, len(self.video_list) - 1)
-                process_data, label = self.__getitem__(index)
+                data, label = self.__getitem__(index)
         else:
             segment_indices = self._get_test_indices(record)
-            process_data = self.get(record, segment_indices)
-            if process_data is None:
+            data = self.get(record, segment_indices)
+            if data is None:
                 raise ValueError('sample indices:', record.path, segment_indices)
 
-        data = process_data.squeeze(0)
         data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
         data = data.permute(1, 0, 2, 3, 4).contiguous()
 

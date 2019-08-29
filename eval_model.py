@@ -8,12 +8,12 @@ import torch.nn.parallel
 from torch.nn import MaxPool1d, AvgPool1d
 
 import datasets
-import metric_tools.metrics as m
+import metrics.metrics as m
 from models.get import get_model
 from utils import setup_logger
 
 
-def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline, causal, mode,
+def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline, mode,
          dataset, sample_frames, workers):
     start_time = time.time()
 
@@ -23,15 +23,12 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     # Loading data
     Dataset = getattr(datasets, dataset.capitalize())
     dataset = Dataset(root_data_path, map_file, sample_frames=sample_frames,
-                      mode=mode, causal=causal)
-    if hvd.size() > 1:
-        sampler = torch.utils.data.distributed.DistributedSampler(
-            dataset, num_replicas=hvd.size(), rank=hvd.rank())
-        data_loader = torch.utils.data.DataLoader(
-            dataset, sampler=sampler, batch_size=1, num_workers=workers, pin_memory=True)
-    else:
-        data_loader = torch.utils.data.DataLoader(
-            dataset, batch_size=1, shuffle=False, num_workers=workers)
+                      mode=mode)
+
+    sampler = torch.utils.data.distributed.DistributedSampler(
+        dataset, num_replicas=hvd.size(), rank=hvd.rank())
+    data_loader = torch.utils.data.DataLoader(
+        dataset, sampler=sampler, batch_size=1, num_workers=workers, pin_memory=True)
 
     total_num = len(dataset)
     data_gen = enumerate(data_loader, start=1)
@@ -72,8 +69,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     LOG.info('Loading model took {:.3f}s'.format(model_time - data_time))
     LOG.debug(model)
 
-    metric = m.Video_mAP('test_metric', m.mAP) if dataset.multi_label else m.Video_Accuracy(
-        'test_metric', m.Top5)
+    video_metric = m.Video_mAP(m.mAP) if dataset.multi_label else m.Video_Accuracy(m.Top5)
     batch_time = m.AverageMeter('batch_time')
     data_time = m.AverageMeter('data_time')
     with torch.no_grad():
@@ -85,22 +81,22 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
 
             data = data.squeeze(0).cuda()
             output = model(data).cpu()
-            metric.add(video_output(output), label)
+            video_metric.add(video_output(output), label)
 
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
-            if i % 50 == 0:
+            if i % 5 == 0:
                 LOG.info('Video {}/{} ({:.02f}%) | '
                          'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
                          'Data {data_time.val:.3f}s ({data_time.avg:.3f}s avg.) | '
-                         '{metric}'.format(
+                         '{metric.name}: {metric}'.format(
                             i, total_num, i*100/total_num, batch_time=batch_time,
-                            data_time=data_time, metric=metric))
-                RESULTS.debug(metric.to_text())
+                            data_time=data_time, metric=video_metric.metric))
+                RESULTS.debug(video_metric.to_text())
 
-    RESULTS.debug(metric.to_text())
-    LOG.info('\n{}'.format(metric))
+    RESULTS.debug(video_metric.to_text())
+    LOG.info('\n{metric.name}: {metric}'.format(metric=video_metric.metric))
 
 
 def main():
@@ -119,7 +115,6 @@ def main():
     parser.add_argument('--arch', type=str, default='nonlocal_net')
     parser.add_argument('--backbone', type=str, default='resnet50')
     parser.add_argument('--baseline', action='store_false')
-    parser.add_argument('--causal', action='store_true')
     parser.add_argument('--mode', type=str, default='val')
     parser.add_argument('--dataset', type=str, default='kinetics')
     parser.add_argument('--sample_frames', type=int, default=8,
@@ -152,7 +147,7 @@ def main():
         setup_logger('results', results_file)
 
     eval(args.map_file, args.root_data_path, args.pretrained_weights, args.arch, args.backbone,
-         args.baseline, args.causal, args.mode, args.dataset, args.sample_frames, args.workers)
+         args.baseline, args.mode, args.dataset, args.sample_frames, args.workers)
 
 
 if __name__ == '__main__':

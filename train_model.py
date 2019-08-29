@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
-import metric_tools.metrics as m
+import metrics.metrics as m
 import utils
 from models.get import get_model
 
@@ -71,16 +71,16 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
                 if running_loss.count - offset >= t.total // 10:  # Update progressbar every 10%
                     t.set_postfix({
                         'loss': '{:.4f}'.format(running_loss.avg),
-                        str(metric): '{:.3f}'.format(metric.value)
+                        metric.name: str(metric)
                     }, refresh=False)
                     t.update(running_loss.count - offset)
                     offset = running_loss.count
 
                 # Update weights
                 if is_train:
-                    optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
+                    optimizer.zero_grad()
 
     return running_loss
 
@@ -102,8 +102,8 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
     multi_label = train_loader.dataset.multi_label
 
     # Metrics
-    train_metric = m.mAP('train_metric') if multi_label else m.Accuracy('train_metric')
-    val_metric = m.mAP('val_metric') if multi_label else m.Accuracy('val_metric')
+    train_metric = m.mAP() if multi_label else m.Accuracy()
+    val_metric = m.mAP() if multi_label else m.Accuracy()
 
     # Model
     model = get_model(arch=arch, backbone=backbone, pretrained_weights=pretrained_weights,
@@ -207,16 +207,16 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
                 prefix=prefix,
                 phase='Train',
                 loss=train_loss.avg,
-                metric=train_metric,
-                metric_value=train_metric.value,
+                metric=train_metric.name,
+                metric_value=train_metric,
                 time=train_time,
                 rate=train_loss.count / train_time)
             val_string = tmp.format(
                 prefix=' ' * len(prefix),
                 phase='Val',
                 loss=val_loss.avg,
-                metric=val_metric,
-                metric_value=val_metric.value,
+                metric=val_metric.name,
+                metric_value=val_metric,
                 time=val_time,
                 rate=val_loss.count / val_time)
             LOG.info('{}\n{}'.format(train_string, val_string))

@@ -88,13 +88,13 @@ def parse_json(json_file):
 
 
 def get_dataloaders(dataset, train_file, val_file, train_data, val_data, batch_size,
-                    sample_frames=8, num_workers=4, distributed=False, causal=False, subset=False):
+                    sample_frames=8, num_workers=4, distributed=False, subset=False):
     Dataset = getattr(datasets, dataset.capitalize())
 
     train_dataset = Dataset(train_data, train_file, sample_frames=sample_frames,
-                            mode='train', causal=causal, subset=subset)
+                            mode='train', subset=subset)
     val_dataset = Dataset(val_data, val_file, sample_frames=sample_frames,
-                          mode='val', causal=causal, subset=subset)
+                          mode='val', subset=subset)
 
     if distributed:
         import horovod.torch as hvd

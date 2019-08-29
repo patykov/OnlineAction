@@ -2,8 +2,8 @@ import argparse
 import os
 import sys
 
-from metric_tools import charades_classify as cc
-from metric_tools import kinetics_classify as kc
+from metrics import charades_classify as cc
+from metrics import kinetics_classify as kc
 
 
 class Runnercommands():
