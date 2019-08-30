@@ -201,22 +201,20 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
             val_time = e - b2
 
             prefix = 'Epoch {}/{} - '.format(epoch + 1, num_epochs)
-            tmp = ('{prefix}{phase:>5}: loss = {loss:.4f}, {metric} = {metric_value:.4f}.'
+            tmp = ('{prefix}{phase:>5}: loss = {loss:.4f}, {metric.name} = {metric}.'
                    ' {phase} time: {time:.2f}s ({rate:.2f} samples/s)')
             train_string = tmp.format(
                 prefix=prefix,
                 phase='Train',
                 loss=train_loss.avg,
-                metric=train_metric.name,
-                metric_value=train_metric,
+                metric=train_metric,
                 time=train_time,
                 rate=train_loss.count / train_time)
             val_string = tmp.format(
                 prefix=' ' * len(prefix),
                 phase='Val',
                 loss=val_loss.avg,
-                metric=val_metric.name,
-                metric_value=val_metric,
+                metric=val_metric,
                 time=val_time,
                 rate=val_loss.count / val_time)
             LOG.info('{}\n{}'.format(train_string, val_string))

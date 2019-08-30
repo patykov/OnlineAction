@@ -249,3 +249,24 @@ def resnet50(weights_file=None, num_classes=400, **kwargs):
                       num_classes=num_classes, **kwargs)
 
     return model
+
+
+def resnet101(weights_file=None, num_classes=400, **kwargs):
+    temp_conv = [
+        [1, 1, 1],
+        [1, 0, 1, 0],
+        [1 if i % 2 == 0 else 0 for i in range(23)],
+        [0, 1, 0]
+    ]
+
+    nonlocal_block = [
+        [0, 0, 0],
+        [0, 1, 0, 1],
+        [1 if i % 7 == 6 else 0 for i in range(23)],
+        [0, 0, 0]
+    ]
+
+    model = I3DResNet(Bottleneck, [3, 4, 23, 3], temp_conv=temp_conv, nonlocal_block=nonlocal_block,
+                      num_classes=num_classes, **kwargs)
+
+    return model
