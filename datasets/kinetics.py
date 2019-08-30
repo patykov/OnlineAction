@@ -31,7 +31,8 @@ class Kinetics(data.Dataset):
         self.root_path = root_path
         self.list_file = list_file
         self.sample_frames = sample_frames
-        self.stride = 2 if self.sample_frames == 32 else 8
+        self.clip_length = 2  # in seconds
+        # self.stride = 2 if sample_frames == 32 else 8
         self.mode = mode
         self.test_clips = test_clips
         self.subset = subset
@@ -83,11 +84,11 @@ class Kinetics(data.Dataset):
             offsets : List of image indices to be loaded from a video.
         """
         sample_start_pos = np.linspace(
-            self.sample_frames*self.stride, record.num_frames-1, self.test_clips, dtype=int)
+            self.clip_length * record.fps, record.num_frames-1, self.test_clips, dtype=int)
         offsets = []
         for p in sample_start_pos:
             offsets.extend(np.linspace(
-                max(p-self.sample_frames*self.stride + self.stride, 0),
+                max(p-self.clip_length * record.fps, 0),
                 min(p, record.num_frames-1),
                 self.sample_frames, dtype=int))
 

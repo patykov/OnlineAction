@@ -22,7 +22,6 @@ class Charades(data.Dataset):
         transform: A function that takes in an PIL image and returns a transformed numpy version.
         mode: Set the dataset mode as 'train', 'val' or 'test'.
         test_clips: Number of clips to be evenly sample from each full-length video for evaluation.
-        causal: If True, sets the evaluation to causal mode. (NotImplemented)
     """
     input_mean = [0.485, 0.456, 0.406]
     input_std = [0.229, 0.224, 0.225]
@@ -30,14 +29,14 @@ class Charades(data.Dataset):
     multi_label = True
 
     def __init__(self, root_path, list_file, sample_frames=8, transform=None,
-                 mode='train', test_clips=15, causal=False, subset=False):
+                 mode='train', test_clips=15, subset=False):
         self.root_path = root_path
         self.list_file = list_file
         self.sample_frames = sample_frames
-        self.stride = 2 if sample_frames == 32 else 8
+        self.clip_length = 3  # in seconds
+        # self.stride = 2 if sample_frames == 32 else 8
         self.mode = mode
         self.test_clips = test_clips
-        self.causal = causal
         self.subset = subset
 
         if transform is not None:
@@ -79,15 +78,17 @@ class Charades(data.Dataset):
             offsets : List of image indices to be loaded from a video.
             target: Binary list of labels from a video.
         """
-        expanded_sample_length = self.sample_frames * self.stride
+        expanded_sample_length = self.clip_length * record.fps
         if record.num_frames >= expanded_sample_length:
-            start_pos = randint(record.num_frames - expanded_sample_length + 1)
-            offsets = range(start_pos, start_pos + expanded_sample_length, self.stride)
+            start_pos = randint(record.num_frames - expanded_sample_length)
+            offsets = np.linspace(
+                start_pos, start_pos + expanded_sample_length, self.sample_frames, dtype=int)
         elif record.num_frames > self.sample_frames:
-            start_pos = randint(record.num_frames - self.sample_frames + 1)
-            offsets = range(start_pos, start_pos + self.sample_frames, 1)
+            start_pos = randint(record.num_frames - self.sample_frames)
+            offsets = np.linspace(
+                start_pos, start_pos + self.sample_frames, self.sample_frames, dtype=int)
         else:
-            offsets = np.sort(randint(record.num_frames, size=self.sample_frames))
+            offsets = np.linspace(0, record.num_frames - 1, self.sample_frames, dtype=int)
 
         target = torch.IntTensor(self.num_classes).zero_()
         for frame in offsets:
@@ -106,11 +107,11 @@ class Charades(data.Dataset):
             target: Binary list of labels from a video.
         """
         sample_start_pos = np.linspace(
-            self.sample_frames*self.stride, record.num_frames-1, self.test_clips, dtype=int)
+            self.clip_length * record.fps, record.num_frames-1, self.test_clips, dtype=int)
         offsets = []
         for p in sample_start_pos:
             offsets.extend(np.linspace(
-                max(p-self.sample_frames*self.stride + self.stride, 0),
+                max(p-self.clip_length * record.fps, 0),
                 min(p, record.num_frames-1),
                 self.sample_frames, dtype=int))
 
@@ -126,17 +127,16 @@ class Charades(data.Dataset):
 
         if self.mode in ['train', 'val']:
             segment_indices, target = self._get_train_indices(record)
-            process_data = self.get(record, segment_indices)
-            while process_data is None:
+            data = self.get(record, segment_indices)
+            while data is None:
                 index = randint(0, len(self.video_list) - 1)
-                process_data, target = self.__getitem__(index)
+                data, target = self.__getitem__(index)
         else:
             segment_indices, target = self._get_test_indices(record)
-            process_data = self.get(record, segment_indices)
-            if process_data is None:
+            data = self.get(record, segment_indices)
+            if data is None:
                 raise ValueError('sample indices:', record.path, segment_indices)
 
-        data = process_data.squeeze(0)
         data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
         data = data.permute(1, 0, 2, 3, 4).contiguous()
 
@@ -151,6 +151,7 @@ class Charades(data.Dataset):
 
         images = [uniq_imgs[i] for i in indices]
         images = self.transform(images)
+
         return images
 
     def __len__(self):
