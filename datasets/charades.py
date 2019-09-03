@@ -34,7 +34,6 @@ class Charades(data.Dataset):
         self.list_file = list_file
         self.sample_frames = sample_frames
         self.clip_length = 3  # in seconds
-        # self.stride = 2 if sample_frames == 32 else 8
         self.mode = mode
         self.test_clips = test_clips
         self.subset = subset
@@ -78,7 +77,7 @@ class Charades(data.Dataset):
             offsets : List of image indices to be loaded from a video.
             target: Binary list of labels from a video.
         """
-        expanded_sample_length = self.clip_length * record.fps
+        expanded_sample_length = int(self.clip_length * record.fps)
         if record.num_frames >= expanded_sample_length:
             start_pos = randint(record.num_frames - expanded_sample_length)
             offsets = np.linspace(
@@ -130,15 +129,14 @@ class Charades(data.Dataset):
             data = self.get(record, segment_indices)
             while data is None:
                 index = randint(0, len(self.video_list) - 1)
-                data, target = self.__getitem__(index)
+                data, label = self.__getitem__(index)
+                target = label['target']  # Retrieving target and video_path of new data item
+                video_path = label['video_path']
         else:
             segment_indices, target = self._get_test_indices(record)
             data = self.get(record, segment_indices)
             if data is None:
                 raise ValueError('sample indices:', record.path, segment_indices)
-
-        data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
-        data = data.permute(1, 0, 2, 3, 4).contiguous()
 
         return data, {'target': target, 'video_path': video_path}
 
@@ -152,7 +150,9 @@ class Charades(data.Dataset):
         images = [uniq_imgs[i] for i in indices]
         images = self.transform(images)
 
-        return images
+        data = images.view(3, -1, self.sample_frames, images.size(2), images.size(3)).contiguous()
+        data = data.permute(1, 0, 2, 3, 4).contiguous()
+        return data
 
     def __len__(self):
         return len(self.video_list)

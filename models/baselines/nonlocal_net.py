@@ -231,7 +231,7 @@ class NonLocalBlock(nn.Module):
         return z
 
 
-def resnet50(weights_file=None, num_classes=400, **kwargs):
+def resnet50(num_classes=400, **kwargs):
     temp_conv = [
         [1, 1, 1],
         [1, 0, 1, 0],
@@ -251,7 +251,7 @@ def resnet50(weights_file=None, num_classes=400, **kwargs):
     return model
 
 
-def resnet101(weights_file=None, num_classes=400, **kwargs):
+def resnet101(num_classes=400, **kwargs):
     temp_conv = [
         [1, 1, 1],
         [1, 0, 1, 0],

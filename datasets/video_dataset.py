@@ -14,7 +14,7 @@ class VideoRecord(object):
         success, frame = self.video.read()
         if not success:
             print('Failed to load video {}'.format(self.path))
-            return None
+            return 0
 
         if reliable:
             # Fastest and easiest way to get video frame count. However, it does not work for

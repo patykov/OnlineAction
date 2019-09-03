@@ -10,7 +10,7 @@ def get_model(arch, backbone, pretrained_weights, mode, num_classes, non_local, 
         'Mode {} does not exist. Choose between "train, "val" or "test".'.format(mode))
 
     model = getattr(import_module('models.baselines.' + arch), backbone)(
-        pretrained_weights, num_classes=num_classes, non_local=non_local, frame_num=frame_num)
+        num_classes=num_classes, non_local=non_local, frame_num=frame_num)
 
     strict = True
     if pretrained_weights:

@@ -8,15 +8,16 @@ from train_model import main
 
 args = [
     '--config_file',  'kinetics_config.json',
-    '--train_map_file', '/media/v-pakova/Datasets/Kinetics/400/Annotation/train_clips_256_list.txt',
-    '--val_map_file', '/media/v-pakova/Datasets/Kinetics/400/Annotation/val_clips_256_list.txt',
-    '--train_data_path', '/media/v-pakova/Datasets/Kinetics/400/train_clips_256',
-    '--val_data_path', '/media/v-pakova/Datasets/Kinetics/400/val_clips_256',
-    '--pretrained_weights', '/media/v-pakova/OnlineActionRecognition/models/pre-trained/' +
-                            'resnet50_nonlocal_i3d_kinetics_32x2.pth',
+    '--train_map_file', '/data/Datasets/Kinetics/400/Annotation/train_clips_256_list.txt',
+    '--val_map_file', '/data/Datasets/Kinetics/400/Annotation/val_clips_256_list.txt',
+    '--train_data_path', '/data/Datasets/Kinetics/400/train_clips_256',
+    '--val_data_path', '/data/Datasets/Kinetics/400/val_clips_256',
+    '--pretrained_weights', '/data/OnlineActionRecognition/models/pre-trained/' +
+                            'resnet101_nonlocal_i3d_kinetics_32x2_partial.pth',
     '--filename', 'kinetics_train',
     '--sample_frames', '32',
     '--dataset', 'kinetics',
+    '--backbone', 'resnet101',
     '--subset'
 
 ]

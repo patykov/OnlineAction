@@ -32,7 +32,6 @@ class Kinetics(data.Dataset):
         self.list_file = list_file
         self.sample_frames = sample_frames
         self.clip_length = 2  # in seconds
-        # self.stride = 2 if sample_frames == 32 else 8
         self.mode = mode
         self.test_clips = test_clips
         self.subset = subset
@@ -63,17 +62,18 @@ class Kinetics(data.Dataset):
         Returns:
             offsets : List of image indices to be loaded from a video.
         """
-        expanded_sample_length = self.sample_frames * self.stride
-        if record.num_frames >= expanded_sample_length:
-            start_pos = randint(record.num_frames - expanded_sample_length + 1)
-            offsets = range(start_pos, start_pos + expanded_sample_length, self.stride)
+        expanded_sample_length = int(self.clip_length * record.fps)
+        if record.num_frames > expanded_sample_length:
+            start_pos = randint(record.num_frames - expanded_sample_length)
+            offsets = np.linspace(
+                start_pos, start_pos + expanded_sample_length, self.sample_frames, dtype=int)
         elif record.num_frames > self.sample_frames:
-            start_pos = randint(record.num_frames - self.sample_frames + 1)
-            offsets = range(start_pos, start_pos + self.sample_frames, 1)
+            start_pos = randint(record.num_frames - self.sample_frames)
+            offsets = np.linspace(
+                start_pos, start_pos + self.sample_frames, self.sample_frames, dtype=int)
         else:
-            offsets = np.sort(randint(record.num_frames, size=self.sample_frames))
+            offsets = np.linspace(0, record.num_frames - 1, self.sample_frames, dtype=int)
 
-        offsets = [int(v) for v in offsets]
         return offsets
 
     def _get_test_indices(self, record):
@@ -103,17 +103,15 @@ class Kinetics(data.Dataset):
             data = self.get(record, segment_indices)
             while data is None:
                 index = randint(0, len(self.video_list) - 1)
-                data, label = self.__getitem__(index)
+                data, target = self.__getitem__(index)
+                label = target['target']  # Retrieving label of new data item
         else:
             segment_indices = self._get_test_indices(record)
             data = self.get(record, segment_indices)
             if data is None:
                 raise ValueError('sample indices:', record.path, segment_indices)
 
-        data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
-        data = data.permute(1, 0, 2, 3, 4).contiguous()
-
-        return data, {'target': int(record.label)}
+        return data, {'target': int(label)}
 
     def get(self, record, indices):
         uniq_id = np.unique(indices)
@@ -124,7 +122,10 @@ class Kinetics(data.Dataset):
 
         images = [uniq_imgs[i] for i in indices]
         images = self.transform(images)
-        return images
+
+        data = images.view(3, -1, self.sample_frames, images.size(2), images.size(3)).contiguous()
+        data = data.permute(1, 0, 2, 3, 4).contiguous()
+        return data
 
     def __len__(self):
         return len(self.video_list)
