@@ -132,8 +132,8 @@ class VideoDataset(data.Dataset):
         images = [uniq_imgs[i] for i in indices]
         images = self.transform(images)
 
-        data = images.view(3, -1, self.sample_frames, images.size(2), images.size(3)).contiguous()
-        data = data.permute(1, 0, 2, 3, 4).contiguous()
+        data = images.view(3, -1, self.sample_frames, images.size(2), images.size(3))
+        data = data.permute(1, 0, 2, 3, 4)
         return data
 
     def __len__(self):

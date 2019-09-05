@@ -60,7 +60,7 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
                 batch_samples = torch.tensor(data.shape[0]).item()
 
                 # Get outputs
-                outputs = model(data.view(-1, *data.shape[2:]).contiguous().cuda())
+                outputs = model(data.view(-1, *data.shape[2:]).cuda())
                 targets = label['target'].cuda()
 
                 # Compute loss and metrics
