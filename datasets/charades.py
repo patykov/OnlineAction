@@ -21,7 +21,7 @@ class Charades(data.Dataset):
         sample_frames: Number of frames used in the input (temporal dimension).
         transform: A function that takes in an PIL image and returns a transformed numpy version.
         mode: Set the dataset mode as 'train', 'val' or 'test'.
-        test_clips: Number of clips to be evenly sample from each full-length video for evaluation.
+        test_clips: Number of clips to be evenly sampled from each full-length video for evaluation.
     """
     input_mean = [0.485, 0.456, 0.406]
     input_std = [0.229, 0.224, 0.225]
@@ -141,6 +141,13 @@ class Charades(data.Dataset):
         return data, {'target': target, 'video_path': video_path}
 
     def get(self, record, indices):
+        """
+        Args:
+            record : VideoRecord object
+            indices : List of image indices to be loaded from a video.
+        Returns:
+            data : Numpy array with the loaded and transformed data from the video.
+        """
         uniq_id = np.unique(indices)
         uniq_imgs = record.get_frames(uniq_id)
 

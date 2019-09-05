@@ -117,7 +117,7 @@ class mAP(Metric):
 
 
 class Video_Wrapper:
-    """ Metric wrapper that storages model predictions at video level evaluation in a text
+    """ Metric wrapper that stores model predictions at video level evaluation in a text
     format."""
     def __init__(self, metric):
         self.metric = metric()

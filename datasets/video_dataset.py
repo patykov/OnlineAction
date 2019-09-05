@@ -41,7 +41,7 @@ class VideoRecord(object):
         self.video.set(cv2.CAP_PROP_POS_FRAMES, min(indices))
         for count in range(min(indices), max(indices)+1):
             success, frame = self.video.read()
-            if success is False:
+            if not success:
                 print('Could not load frame {} from video {} (num_frames: {})\n'.format(
                     count, self.path, self.num_frames))
                 return None

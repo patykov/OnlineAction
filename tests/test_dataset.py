@@ -50,9 +50,6 @@ def test_charades_get_frames(sample_frames, mode):
         sample_frames=sample_frames,
         mode=mode)
 
-    stride = 2 if dataset.sample_frames == 32 else 8
-    assert dataset.sample_frames * stride == 64  # temporal input extesion
-
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=False)
     for i, (data, label) in enumerate(data_loader):
         target = label['target']
@@ -94,9 +91,6 @@ def test_kinetics_get_frames(sample_frames, mode):
         os.path.join(data_dir, 'list_file.txt'),
         sample_frames=sample_frames,
         mode=mode)
-
-    stride = 2 if dataset.sample_frames == 32 else 8
-    assert dataset.sample_frames * stride == 64  # temporal input extesion
 
     data_loader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=False)
     for i, (data, label) in enumerate(data_loader):
