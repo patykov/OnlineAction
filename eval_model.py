@@ -5,7 +5,7 @@ import time
 
 import horovod.torch as hvd
 import torch.nn.parallel
-from torch.nn import MaxPool1d, AvgPool1d
+from torch.nn import AvgPool1d, MaxPool1d
 
 import datasets
 import metrics.metrics as m
@@ -69,7 +69,8 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     LOG.info('Loading model took {:.3f}s'.format(model_time - data_time))
     LOG.debug(model)
 
-    video_metric = m.Video_mAP(m.mAP) if dataset.multi_label else m.Video_Accuracy(m.Top5)
+    video_metric = m.Video_mAP(m.mAP()) if dataset.multi_label else m.Video_Accuracy(
+        m.TopK(k=(1, 5)))
     batch_time = m.AverageMeter('batch_time')
     data_time = m.AverageMeter('data_time')
     with torch.no_grad():
@@ -86,7 +87,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
-            if i % 5 == 0:
+            if i % 50 == 0:
                 LOG.info('Video {}/{} ({:.02f}%) | '
                          'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
                          'Data {data_time.val:.3f}s ({data_time.avg:.3f}s avg.) | '

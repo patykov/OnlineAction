@@ -1,6 +1,8 @@
 import argparse
 import os
 
+from video_record import VideoRecord
+
 
 def create_labels_file(dir_path, output_dir):
     """
@@ -50,10 +52,19 @@ def create_video_list(dir_path, output_file_path, classes_file):
     files_text = ''
     for c_name, c_id in classes.items():
         class_path = os.path.join(dir_path, c_name)
-        videos = os.listdir(class_path)
+        videos = sorted(os.listdir(class_path))
+        print(class_path)
+        usable_videos = []
+        for v in videos:
+            try:
+                _ = VideoRecord(os.path.join(dir_path, c_name, v), None)
+                usable_videos.append(v)
+            except ValueError as e:
+                print(e)
+
         files_text += ''.join(['{} {}\n'.format(
             c_id,
-            os.path.join(c_name, v)) for v in videos])
+            os.path.join(c_name, v)) for v in usable_videos])
 
     with open(output_file_path, 'w') as file:
         file.write(files_text)

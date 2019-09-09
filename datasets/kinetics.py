@@ -18,18 +18,14 @@ class Kinetics(VideoDataset):
 
         self.video_list = video_list
 
-    def _get_train_target(self, offsets, record):
+    def _get_train_target(self, record, *args):
         """
         Args:
-            offsets : List of image indices to be loaded from a video.
             record : VideoRecord object
+        Returns:
+            target: Dict with the video label.
         """
-        return int(record.label)
+        return {'target': int(record.label)}
 
     def _get_test_target(self, record):
-        """
-        Args:
-            offsets : List of image indices to be loaded from a video.
-            record : VideoRecord object
-        """
         return self._get_train_target(record)

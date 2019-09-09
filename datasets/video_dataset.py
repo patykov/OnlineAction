@@ -89,7 +89,7 @@ class VideoDataset(data.Dataset):
 
         return offsets
 
-    def _get_train_target(self, offsets, record):
+    def _get_train_target(self, record, *args):
         raise NotImplementedError()
 
     def _get_test_target(self, record):
@@ -101,19 +101,13 @@ class VideoDataset(data.Dataset):
 
         if self.mode in ['train', 'val']:
             segment_indices = self._get_train_indices(record)
-            target = self._get_train_target(segment_indices, record)
-            data = self.get(record, segment_indices)
-            while data is None:
-                index = randint(0, len(self.video_list) - 1)
-                data, target = self.__getitem__(index)
+            target = self._get_train_target(record, segment_indices)
         else:
             segment_indices = self._get_test_indices(record)
             target = self._get_test_target(record)
-            data = self.get(record, segment_indices)
-            if data is None:
-                raise ValueError('sample indices:', record.path, segment_indices)
 
-        return data, {'target': target, 'video_path': video_path}
+        data = self.get(record, segment_indices)
+        return data, target
 
     def get(self, record, indices):
         """
@@ -125,9 +119,6 @@ class VideoDataset(data.Dataset):
         """
         uniq_id = np.unique(indices)
         uniq_imgs = record.get_frames(uniq_id)
-
-        if uniq_imgs is None:
-            return None
 
         images = [uniq_imgs[i] for i in indices]
         images = self.transform(images)

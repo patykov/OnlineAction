@@ -35,13 +35,13 @@ class Charades(VideoDataset):
 
         self.video_list = video_list
 
-    def _get_train_target(self, offsets, record):
+    def _get_train_target(self, record, offsets):
         """
         Args:
-            offsets : List of image indices to be loaded from a video.
             record : VideoRecord object
+            offsets : List of image indices to be loaded from a video.
         Returns:
-            target: Binary list of labels from a video.
+            target: Dict with the binary list of labels from a video.
         """
         target = torch.IntTensor(self.num_classes).zero_()
         for frame in offsets:
@@ -49,20 +49,20 @@ class Charades(VideoDataset):
                 if l['start'] < frame/float(record.fps) < l['end']:
                     target[int(l['class'][1:])] = 1
 
-        return target
+        return {'target': target}
 
     def _get_test_target(self, record):
         """
         Args:
             record : VideoRecord object
         Returns:
-            target: Binary list of labels from a video.
+            target: Dict with the binary list of labels from a video and its relative path.
         """
         target = torch.IntTensor(self.num_classes).zero_()
         for l in record.label:
             target[int(l['class'][1:])] = 1
 
-        return target
+        return {'target': target, 'video_path': os.path.splitext(os.path.basename(record.path))[0]}
 
 
 def calculate_charades_pos_weight(list_file, root_path, output_dir):

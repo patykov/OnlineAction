@@ -57,45 +57,30 @@ class Metric:
         raise NotImplementedError
 
 
-class Accuracy(Metric):
-    def __init__(self):
-        super().__init__('accuracy')
+class TopK(Metric):
+    def __init__(self, k=(1,)):
+        super().__init__('/'.join(['top{}'.format(ki) for ki in k]))
+        self.k = k
+        self.maxk = max(k)
 
     def _add(self, output, target):
-        _, top_pred = torch.topk(output, 1)
+        _, topk_pred = torch.topk(output, self.maxk)
 
         self.targets.append(
             hvd.allgather(torch.stack([target.cpu()], dim=1), name=self.name + '_target'))
-        self.predictions.append(hvd.allgather(top_pred.cpu(), name=self.name + '_top_pred'))
-
-    def _get_value(self):
-        return get_accuracy(np.vstack(self.predictions), np.vstack(self.targets))
-
-    def __repr__(self):
-        return '{:.02%}'.format(self.value)
-
-
-class Top5(Metric):
-    def __init__(self):
-        super().__init__('accuracy (t1/t5)')
-
-    def _add(self, output, target):
-        _, top5_pred = torch.topk(output, 5)
-
-        self.targets.append(
-            hvd.allgather(torch.stack([target.cpu()], dim=1), name=self.name + '_target'))
-        self.predictions.append(hvd.allgather(top5_pred.cpu(), name=self.name + '_top5_pred'))
+        self.predictions.append(hvd.allgather(topk_pred.cpu(), name=self.name + '_pred'))
 
     def _get_value(self):
         predictions = np.vstack(self.predictions)
         targets = np.vstack(self.targets)
-        acc1 = get_accuracy(predictions[:, 0], targets)
-        acc5 = get_accuracy([t.item() if t in p else p[0] for p, t in zip(
-            predictions, targets)], targets)
-        return acc1, acc5
+        acc = []
+        for ki in self.k:
+            pred_ki = [t.item() if t in p[:ki] else p[0] for p, t in zip(predictions, targets)]
+            acc.append(per_class_accuracy(pred_ki, targets))
+        return acc
 
     def __repr__(self):
-        return '{:.02%} / {:.02%}'.format(*self.value)
+        return '/'.join(['{:.02%}'.format(v) for v in [*self.value]])
 
 
 class mAP(Metric):
@@ -120,7 +105,7 @@ class Video_Wrapper:
     """ Metric wrapper that stores model predictions at video level evaluation in a text
     format."""
     def __init__(self, metric):
-        self.metric = metric()
+        self.metric = metric
         self.reset()
 
     def reset(self):
@@ -160,11 +145,9 @@ class Video_Accuracy(Video_Wrapper):
             self.metric.predictions[-1].numpy(), separator=', ')[1:-1])
 
 
-def get_accuracy(predictions, labels):
+def per_class_accuracy(predictions, labels):
     cf = confusion_matrix(labels, predictions).astype(float)
 
     cls_cnt = cf.sum(axis=1)
     cls_hit = np.diag(cf)
-    cls_acc = [h/c if c > 0 else 0.00 for (h, c) in zip(cls_hit, cls_cnt)]
-
-    return np.mean(cls_acc)
+    return np.nanmean(cls_hit/cls_cnt)

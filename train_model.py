@@ -102,8 +102,8 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
     multi_label = train_loader.dataset.multi_label
 
     # Metrics
-    train_metric = m.mAP() if multi_label else m.Accuracy()
-    val_metric = m.mAP() if multi_label else m.Accuracy()
+    train_metric = m.mAP() if multi_label else m.TopK()
+    val_metric = m.mAP() if multi_label else m.TopK()
 
     # Model
     model = get_model(arch=arch, backbone=backbone, pretrained_weights=pretrained_weights,
@@ -273,9 +273,11 @@ def main():
     val_data_path = args.val_data_path if args.val_data_path else args.train_data_path
     filename = args.filename if args.filename else os.path.splitext(
         os.path.basename(args.config_file))[0]
-    outputdir = args.outputdir if args.outputdir else os.path.join(
-        os.path.dirname(__file__), '..', 'outputs',
-        os.path.splitext(os.path.basename(args.filename))[0])
+    outputdir = os.path.join(
+        args.outputdir,
+        os.path.splitext(os.path.basename(args.filename))[0]) if args.outputdir else os.path.join(
+            os.path.dirname(__file__), '..', 'outputs',
+            os.path.splitext(os.path.basename(args.filename))[0])
     checkpoint_path = os.path.join(outputdir, filename + '.pth')
     os.makedirs(outputdir, exist_ok=True)
 

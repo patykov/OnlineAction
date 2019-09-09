@@ -13,8 +13,7 @@ class VideoRecord(object):
     def _get_num_frames(self, reliable):
         success, frame = self.video.read()
         if not success:
-            print('Failed to load video {}'.format(self.path))
-            return 0
+            raise ValueError('Failed to load video {}'.format(self.path))
 
         if reliable:
             # Fastest and easiest way to get video frame count. However, it does not work for
@@ -42,9 +41,8 @@ class VideoRecord(object):
         for count in range(min(indices), max(indices)+1):
             success, frame = self.video.read()
             if not success:
-                print('Could not load frame {} from video {} (num_frames: {})\n'.format(
+                raise ValueError('Could not load frame {} from video {} (num_frames: {})\n'.format(
                     count, self.path, self.num_frames))
-                return None
 
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             if count in indices:
