@@ -51,7 +51,7 @@ class Bottleneck(nn.Module):
 
 
 class SlowFast(nn.Module):
-    def __init__(self, block=Bottleneck, layers=[3, 4, 6, 3], class_num=10, dropout=0.5):
+    def __init__(self, block=Bottleneck, layers=[3, 4, 6, 3], num_classes=10, dropout=0.5):
         super(SlowFast, self).__init__()
 
         self.fast_inplanes = 8
@@ -91,7 +91,15 @@ class SlowFast(nn.Module):
         self.slow_res5 = self._make_layer_slow(
             block, 512, layers[3], stride=2, head_conv=3)
         self.dp = nn.Dropout(dropout)
-        self.fc = nn.Linear(self.fast_inplanes+2048, class_num, bias=False)
+        self.fc = nn.Linear(self.fast_inplanes+2048, num_classes, bias=False)
+
+    def set_mode(self, mode):
+        assert mode in ['train', 'val', 'test']
+
+        # self.mode = mode
+        # if self.mode == 'test':
+            # self.set_fully_conv_test()
+
 
     def forward(self, input):
         fast, lateral = self.FastPath(input[:, :, ::2, :, :])
@@ -184,37 +192,15 @@ class SlowFast(nn.Module):
         return nn.Sequential(*layers)
 
 
-def resnet50(**kwargs):
+def resnet50(num_classes=400, **kwargs):
     """Constructs a ResNet-50 model.
     """
-    model = SlowFast(Bottleneck, [3, 4, 6, 3], **kwargs)
+    model = SlowFast(Bottleneck, [3, 4, 6, 3], num_classes=num_classes)
     return model
 
 
-def resnet101(**kwargs):
+def resnet101(num_classes=400, **kwargs):
     """Constructs a ResNet-101 model.
     """
-    model = SlowFast(Bottleneck, [3, 4, 23, 3], **kwargs)
+    model = SlowFast(Bottleneck, [3, 4, 23, 3], num_classes=num_classes)
     return model
-
-
-def resnet152(**kwargs):
-    """Constructs a ResNet-101 model.
-    """
-    model = SlowFast(Bottleneck, [3, 8, 36, 3], **kwargs)
-    return model
-
-
-def resnet200(**kwargs):
-    """Constructs a ResNet-101 model.
-    """
-    model = SlowFast(Bottleneck, [3, 24, 36, 3], **kwargs)
-    return model
-
-
-if __name__ == "__main__":
-    num_classes = 101
-    input_tensor = torch.autograd.Variable(torch.rand(1, 3, 64, 224, 224))
-    model = resnet50(class_num=num_classes)
-    output = model(input_tensor)
-    print(output.size())

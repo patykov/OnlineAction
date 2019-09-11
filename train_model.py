@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 import metrics.metrics as m
 import utils
+from datasets.get import get_dataloader
 from models.get import get_model
 
 
@@ -95,8 +96,11 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
     backup_path = chkpt_name + '_bkp' + chkpt_ext
 
     # Data loaders
-    train_loader, val_loader = utils.get_dataloaders(
-        dataset, train_file, val_file, train_data, val_data, config['batch_size'],
+    train_loader = get_dataloader(
+        dataset, train_file, train_data, config['batch_size'], mode='train',
+        sample_frames=sample_frames, num_workers=num_workers, distributed=True, subset=subset)
+    val_loader = get_dataloader(
+        dataset, val_file, val_data, config['batch_size'], mode='val',
         sample_frames=sample_frames, num_workers=num_workers, distributed=True, subset=subset)
     num_classes = train_loader.dataset.num_classes
     multi_label = train_loader.dataset.multi_label
@@ -111,8 +115,9 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
                       frame_num=sample_frames, fine_tune=fine_tune, log_name='training')
 
     # Epochs, optimizer, scheduler, criterion
-    num_epochs, optimizer, scheduler = utils.get_optimizer(
-        model, config['learning_rate'], config['weight_decay'], distributed=True)
+    num_epochs = config['num_epochs']
+    optimizer, scheduler = utils.get_optimizer(
+        model, config['learning_scheduler'], config['weight_decay'], distributed=True)
 
     if multi_label:
         pos_weight = torch.load(pos_weight_file).cuda() if pos_weight_file else None
@@ -147,7 +152,7 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
                 load_checkpoint(backup_path, model, meta, optimizer, scheduler)
 
         else:
-            LOG.info('Learning rate configuration: {}'.format(config['learning_rate']))
+            LOG.info('Learning rate configuration: {}'.format(config['learning_scheduler']))
             LOG.info('Weight decay: {:g}\n'.format(config['weight_decay']))
             LOG.info(train_loader.dataset)
             LOG.info(val_loader.dataset)
@@ -168,7 +173,7 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
     hvd.broadcast_optimizer_state(optimizer, root_rank=0)
     utils.broadcast_scheduler_state(scheduler, root_rank=0)
 
-    initial_epoch = scheduler.last_epoch
+    initial_epoch = max(scheduler.last_epoch, 0)
 
     for epoch in range(initial_epoch, num_epochs):
         b = time.time()

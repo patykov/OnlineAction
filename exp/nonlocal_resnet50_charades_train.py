@@ -7,7 +7,7 @@ from train_model import main
 
 
 args = [
-    '--config_file',  'config3.json',
+    '--config_file',  'nonlocal_charades_config.json',
     '--train_map_file', '/data/Datasets/Charades/Annotations/Charades_v1_train.csv',
     '--val_map_file', '/data/Datasets/Charades/Annotations/Charades_v1_test.csv',
     '--train_data_path', '/data/Datasets/Charades/Charades_v1_480',
@@ -17,6 +17,8 @@ args = [
     '--filename', 'charades_test',
     '--sample_frames', '32',
     '--dataset', 'charades',
+    '--backbone', 'resnet50',
+    '--arch', 'nonlocal_net',
     '--fine_tune',
     '--restart',
     '--subset'

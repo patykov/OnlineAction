@@ -15,6 +15,8 @@ args = [
     '--log_file', 'eval_charades_resnet50nl32_config_slowfast_config_reducelr222',
     '--sample_frames', '32',
     '--dataset', 'charades',
+    '--backbone', 'resnet50',
+    '--arch', 'nonlocal_net',
     '--mode', 'test'
 
 ]

@@ -1,6 +1,0 @@
-{
-    "nonlocal": "True",
-    "weight_decay": 1e-5,
-    "learning_rate": [[15, 0.00125], [15, 0.000125], [5, 0.0000125]],
-    "batch_size": 5
-}

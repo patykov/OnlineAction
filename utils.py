@@ -1,14 +1,13 @@
-import os
 import json
 import logging
+import os
+import sys
 from bisect import bisect_right
 
 import horovod.torch as hvd
 import numpy as np
 import torch
 from torch import optim
-
-import datasets
 
 
 class LRLambda:
@@ -20,15 +19,9 @@ class LRLambda:
         return self.gamma[bisect_right(self.milestones, epoch)]
 
 
-def get_optimizer(model, lr_config, weight_decay, distributed=False):
-    milestones = np.cumsum([i[0] for i in lr_config]).astype('int').tolist()
-    num_epochs = milestones[-1]
-    milestones = milestones[:-1]
-    lrs = [i[1] for i in lr_config]
-    initial_lr = lrs[0]
-    gamma = [l / initial_lr for l in lrs]  # Multiplicative factors
-
-    lr_lambda = LRLambda(gamma, milestones)
+def get_optimizer(model, lr_scheduler, weight_decay, distributed=False):
+    initial_lr, lr_scheduler = getattr(
+        sys.modules[__name__], 'get_' + lr_scheduler['type'] + '_scheduler')(lr_scheduler['params'])
 
     optimizer = optim.SGD(
         filter(lambda p: p.requires_grad, model.parameters()),
@@ -40,21 +33,60 @@ def get_optimizer(model, lr_config, weight_decay, distributed=False):
         optimizer = hvd.DistributedOptimizer(optimizer,
                                              named_parameters=filter(lambda p: p[1].requires_grad,
                                                                      model.named_parameters()))
-    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    scheduler = lr_scheduler(optimizer)
 
-    return num_epochs, optimizer, scheduler
+    return optimizer, scheduler
+
+
+def get_lambdaLR_scheduler(lr_config):
+    milestones = np.cumsum([i[0] for i in lr_config['learning_rate']]).astype('int').tolist()
+    milestones = milestones[:-1]
+    lrs = [i[1] for i in lr_config['learning_rate']]
+    initial_lr = lrs[0]
+    gamma = [l / initial_lr for l in lrs]  # Multiplicative factors
+
+    lr_lambda = LRLambda(gamma, milestones)
+
+    def scheduler(optimizer):
+        return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch=-1)
+
+    return initial_lr, scheduler
+
+
+def get_reduceLR_scheduler(lr_config):
+
+    def scheduler(optimizer):
+        return optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3)
+
+    return lr_config['initial_lr'], scheduler
+
+
+def get_cosineLR_scheduler(lr_config):
+
+    def scheduler(optimizer):
+        return optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=lr_config['T_max'])
+
+    return lr_config['initial_lr'], scheduler
 
 
 def broadcast_scheduler_state(scheduler, root_rank):
     state = scheduler.state_dict()
     state['last_epoch'] = hvd.broadcast(
         torch.tensor(state['last_epoch']), root_rank=root_rank, name='last_epoch').item()
-    state['base_lrs'] = hvd.broadcast(
-        torch.tensor(state['base_lrs']), root_rank=root_rank, name='base_lrs').tolist()
-    state['lr_lambdas'] = [{
-        k: hvd.broadcast(torch.tensor(v), root_rank=root_rank, name=k + str(i)).tolist()
-        for k, v in lr_lambda.items()
-    } for i, lr_lambda in enumerate(state['lr_lambdas'])]
+
+    if isinstance(scheduler, optim.lr_scheduler.LambdaLR):
+        state['base_lrs'] = hvd.broadcast(
+            torch.tensor(state['base_lrs']), root_rank=root_rank, name='base_lrs').tolist()
+        state['lr_lambdas'] = [{
+            k: hvd.broadcast(torch.tensor(v), root_rank=root_rank, name=k + str(i)).tolist()
+            for k, v in lr_lambda.items()
+        } for i, lr_lambda in enumerate(state['lr_lambdas'])]
+
+    if isinstance(scheduler, optim.lr_scheduler.ReduceLROnPlateau):
+        state['num_bad_epochs'] = hvd.broadcast(
+            torch.tensor(state['num_bad_epochs']),
+            root_rank=root_rank, name='num_bad_epochs').item()
+
     scheduler.load_state_dict(state)
 
 
@@ -79,43 +111,18 @@ def parse_json(json_file):
     default_values = {
         'nonlocal': True,
         'weight_decay': 1e-4,
-        'learning_rate': [[10, 0.1], [10, 0.001], [10, 0.0001]],
+        'learning_scheduler': {
+            'type': 'reduceLR',
+            'params': {
+                'initial_lr': 0.001
+            }
+        },
+        'num_epochs': 30,
         'batch_size': 8
     }
     default_values = recursive_update(default_values, data)
 
     return default_values
-
-
-def get_dataloaders(dataset, train_file, val_file, train_data, val_data, batch_size,
-                    sample_frames=8, num_workers=4, distributed=False, subset=False):
-    Dataset = getattr(datasets, dataset.capitalize())
-
-    train_dataset = Dataset(train_data, train_file, sample_frames=sample_frames,
-                            mode='train', subset=subset)
-    val_dataset = Dataset(val_data, val_file, sample_frames=sample_frames,
-                          mode='val', subset=subset)
-
-    if distributed:
-        import horovod.torch as hvd
-        train_sampler = torch.utils.data.distributed.DistributedSampler(
-            train_dataset, num_replicas=hvd.size(), rank=hvd.rank())
-        val_sampler = torch.utils.data.distributed.DistributedSampler(
-            val_dataset, num_replicas=hvd.size(), rank=hvd.rank())
-        train_args = {'sampler': train_sampler}
-        val_args = {'sampler': val_sampler}
-    else:
-        train_args = {'shuffle': True}
-        val_args = {'shuffle': False}
-
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=batch_size, **train_args,
-        num_workers=num_workers, pin_memory=True)
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=batch_size, **val_args,
-        num_workers=num_workers, pin_memory=True)
-
-    return train_loader, val_loader
 
 
 def setup_logger(logger_name, log_file):

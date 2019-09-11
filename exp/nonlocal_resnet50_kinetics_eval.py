@@ -15,7 +15,8 @@ args = [
     '--sample_frames', '32',
     '--dataset', 'kinetics',
     '--mode', 'test',
-    '--backbone', 'resnet101'
+    '--backbone', 'resnet50',
+    '--arch', 'nonlocal_net'
 
 ]
 sys.argv.extend(args)
