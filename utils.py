@@ -1,93 +1,6 @@
 import json
 import logging
 import os
-import sys
-from bisect import bisect_right
-
-import horovod.torch as hvd
-import numpy as np
-import torch
-from torch import optim
-
-
-class LRLambda:
-    def __init__(self, gamma, milestones):
-        self.gamma = gamma
-        self.milestones = milestones
-
-    def __call__(self, epoch):
-        return self.gamma[bisect_right(self.milestones, epoch)]
-
-
-def get_optimizer(model, lr_scheduler, weight_decay, distributed=False):
-    initial_lr, lr_scheduler = getattr(
-        sys.modules[__name__], 'get_' + lr_scheduler['type'] + '_scheduler')(lr_scheduler['params'])
-
-    optimizer = optim.SGD(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=initial_lr,
-        momentum=0.9,
-        nesterov=True,
-        weight_decay=weight_decay)
-    if distributed:
-        optimizer = hvd.DistributedOptimizer(optimizer,
-                                             named_parameters=filter(lambda p: p[1].requires_grad,
-                                                                     model.named_parameters()))
-    scheduler = lr_scheduler(optimizer)
-
-    return optimizer, scheduler
-
-
-def get_lambdaLR_scheduler(lr_config):
-    milestones = np.cumsum([i[0] for i in lr_config['learning_rate']]).astype('int').tolist()
-    milestones = milestones[:-1]
-    lrs = [i[1] for i in lr_config['learning_rate']]
-    initial_lr = lrs[0]
-    gamma = [l / initial_lr for l in lrs]  # Multiplicative factors
-
-    lr_lambda = LRLambda(gamma, milestones)
-
-    def scheduler(optimizer):
-        return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch=-1)
-
-    return initial_lr, scheduler
-
-
-def get_reduceLR_scheduler(lr_config):
-
-    def scheduler(optimizer):
-        return optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3)
-
-    return lr_config['initial_lr'], scheduler
-
-
-def get_cosineLR_scheduler(lr_config):
-
-    def scheduler(optimizer):
-        return optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=lr_config['T_max'])
-
-    return lr_config['initial_lr'], scheduler
-
-
-def broadcast_scheduler_state(scheduler, root_rank):
-    state = scheduler.state_dict()
-    state['last_epoch'] = hvd.broadcast(
-        torch.tensor(state['last_epoch']), root_rank=root_rank, name='last_epoch').item()
-
-    if isinstance(scheduler, optim.lr_scheduler.LambdaLR):
-        state['base_lrs'] = hvd.broadcast(
-            torch.tensor(state['base_lrs']), root_rank=root_rank, name='base_lrs').tolist()
-        state['lr_lambdas'] = [{
-            k: hvd.broadcast(torch.tensor(v), root_rank=root_rank, name=k + str(i)).tolist()
-            for k, v in lr_lambda.items()
-        } for i, lr_lambda in enumerate(state['lr_lambdas'])]
-
-    if isinstance(scheduler, optim.lr_scheduler.ReduceLROnPlateau):
-        state['num_bad_epochs'] = hvd.broadcast(
-            torch.tensor(state['num_bad_epochs']),
-            root_rank=root_rank, name='num_bad_epochs').item()
-
-    scheduler.load_state_dict(state)
 
 
 def recursive_update(d, u):
@@ -112,9 +25,9 @@ def parse_json(json_file):
         'nonlocal': True,
         'weight_decay': 1e-4,
         'learning_scheduler': {
-            'type': 'reduceLR',
+            'type': 'reduce_lr',
             'params': {
-                'initial_lr': 0.001
+                "step_per_iter": True
             }
         },
         'num_epochs': 30,

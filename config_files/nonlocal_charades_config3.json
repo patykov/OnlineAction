@@ -5,9 +5,10 @@
         "type": "lambda_lr",
         "params": {
             "step_per_iter": true,
-            "learning_rate": [[150000, 0.01], [150000, 0.001], [100000, 0.0001]]
+            "learning_rate": [
+                [9375, 0.01], [9375, 0.001], [6250, 0.0001]]
         }
     },
-    "num_epochs": 106,
+    "num_epochs": 200,
     "batch_size": 8
 }

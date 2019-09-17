@@ -2,12 +2,13 @@
     "nonlocal": "True",
     "weight_decay": 1e-4,
     "learning_scheduler": {
-        "type": "cosineLR",
+        "type": "cosine_lr",
         "params": {
-            "T_max": 12476,
-            "initial_lr": 1
+            "step_per_iter": true,
+            "T_max": 1470000,
+            "initial_lr": 0.05
         }
     },
-    "num_epochs": 50,
-    "batch_size": 16
+    "num_epochs": 196,
+    "batch_size": 4
 }

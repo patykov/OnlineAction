@@ -13,7 +13,7 @@ args = [
     '--train_data_path', '/data/Datasets/Kinetics/400/train_clips_256',
     '--val_data_path', '/data/Datasets/Kinetics/400/val_clips_256',
     '--filename', 'slowfast_kinetics_train',
-    '--sample_frames', '32',
+    '--sample_frames', '128',
     '--dataset', 'kinetics',
     '--backbone', 'resnet101',
     '--arch', 'slowfast_net',

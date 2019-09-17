@@ -48,6 +48,7 @@ class VideoDataset(data.Dataset):
         Parses the annotation file to create a list of the videos relative path and their labels
         in the format: [label, video_path].
         """
+        self.video_list = None
         raise NotImplementedError()
 
     def _get_train_indices(self, record):

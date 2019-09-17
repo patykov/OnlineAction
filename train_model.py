@@ -13,6 +13,7 @@ import metrics.metrics as m
 import utils
 from datasets.get import get_dataloader
 from models.get import get_model
+from optim.get import get_optimizer
 
 
 def save_checkpoint(checkpoint_path, model, meta, optimizer, scheduler):
@@ -37,10 +38,11 @@ def load_checkpoint(checkpoint_path, model, meta, optimizer, scheduler):
     scheduler.load_state_dict(chkpt_dict['scheduler'])
 
 
-def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train, optimizer=None):
+def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train, optimizer=None,
+              scheduler=None):
     """
     Iterate over the dataloader computing losses and metrics and, if `is_train=True`,
-    updating model weights.
+    updating model weights. If a scheduler is passed, takes a step each iteration.
     """
     model.train(is_train)  # Set model to train/eval mode
     if is_train:
@@ -83,6 +85,10 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
                     optimizer.step()
                     optimizer.zero_grad()
 
+                    # If a scheduler is passed, takes a step
+                    if scheduler:
+                        scheduler.step(running_loss.avg)
+
     return running_loss
 
 
@@ -94,6 +100,8 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
 
     chkpt_name, chkpt_ext = os.path.splitext(checkpoint_path)
     backup_path = chkpt_name + '_bkp' + chkpt_ext
+    best_model_path = chkpt_name + '_best_model' + chkpt_ext
+    best_model_metric = 0.0
 
     # Data loaders
     train_loader = get_dataloader(
@@ -116,7 +124,7 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
 
     # Epochs, optimizer, scheduler, criterion
     num_epochs = config['num_epochs']
-    optimizer, scheduler = utils.get_optimizer(
+    optimizer, scheduler = get_optimizer(
         model, config['learning_scheduler'], config['weight_decay'], distributed=True)
 
     if multi_label:
@@ -159,27 +167,31 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
             if multi_label:
                 LOG.info('Criterion with{} balanced weights (pos_weight)'.format(
                     'out' if pos_weight is None else ''))
-            LOG.info('Batch size: {:d}'.format(config['batch_size']))
             LOG.info('Using {:d} workers for data loading\n'.format(num_workers))
-            LOG.info('Saving results to {}\n'.format(os.path.abspath(checkpoint_path)))
-            LOG.info(model)
-            LOG.info('\nNumber of trainable parameters: {}'.format(
-                sum(p.numel() for p in model.parameters() if p.requires_grad)))
+            LOG.info('Batch size: {:d} (per GPU)'.format(config['batch_size']))
             LOG.info('Using {:d} horovod process{}'.format(hvd.size(),
                                                            'es' if hvd.size() > 1 else ''))
+            LOG.info('Thus, using a total batch size of: {:d}'.format(
+                config['batch_size'] * hvd.size()))
+            LOG.info('Saving results to {}\n'.format(os.path.abspath(checkpoint_path)))
+            LOG.info('\nNumber of trainable parameters: {}'.format(
+                sum(p.numel() for p in model.parameters() if p.requires_grad)))
+            LOG.info(model)
 
     # Horovod: broadcast parameters & optimizer state.
     hvd.broadcast_parameters(model.state_dict(), root_rank=0)
     hvd.broadcast_optimizer_state(optimizer, root_rank=0)
-    utils.broadcast_scheduler_state(scheduler, root_rank=0)
+    scheduler.broadcast_scheduler_state(root_rank=0)
 
-    initial_epoch = max(scheduler.last_epoch, 0)
+    initial_epoch = max(scheduler.last_epoch, 0) if not scheduler.step_per_iter else int(
+        (scheduler.last_epoch * config['batch_size'] * hvd.size()) / len(train_loader.dataset))
 
     for epoch in range(initial_epoch, num_epochs):
         b = time.time()
         # Train for one epoch
         train_loss = run_epoch(model, train_loader, epoch, num_epochs, criterion,
-                               train_metric, True, optimizer)
+                               train_metric, True, optimizer,
+                               scheduler if scheduler.step_per_iter else None)
         e1 = time.time()
 
         meta['loss'].append(train_loss.avg)
@@ -194,13 +206,18 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
         meta['val_loss'].append(val_loss.avg)
         meta['val_metric'].append(val_metric.value)
 
-        scheduler.step()
+        # Takes a step per epoch if 'step_per_iter' if False
+        if not scheduler.step_per_iter:
+            scheduler.step(val_loss.avg)
 
         if hvd.rank() == 0:
             # Checkpoint with redundancy
             if os.path.exists(checkpoint_path):
                 os.rename(checkpoint_path, backup_path)
             save_checkpoint(checkpoint_path, model, meta, optimizer, scheduler)
+            if val_metric.value > best_model_metric:
+                save_checkpoint(best_model_path, model, meta, optimizer, scheduler)
+                best_model_metric = val_metric.value
 
             train_time = e1 - b
             val_time = e - b2
@@ -278,11 +295,8 @@ def main():
     val_data_path = args.val_data_path if args.val_data_path else args.train_data_path
     filename = args.filename if args.filename else os.path.splitext(
         os.path.basename(args.config_file))[0]
-    outputdir = os.path.join(
-        args.outputdir,
-        os.path.splitext(os.path.basename(args.filename))[0]) if args.outputdir else os.path.join(
-            os.path.dirname(__file__), '..', 'outputs',
-            os.path.splitext(os.path.basename(args.filename))[0])
+    outputdir = os.path.join(args.outputdir, filename) if args.outputdir else os.path.join(
+            os.path.dirname(__file__), '..', 'outputs', filename)
     checkpoint_path = os.path.join(outputdir, filename + '.pth')
     os.makedirs(outputdir, exist_ok=True)
 

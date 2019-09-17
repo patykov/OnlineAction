@@ -1,13 +1,13 @@
 {
     "nonlocal": "True",
-    "weight_decay": 1e-6,
+    "weight_decay": 1e-4,
     "learning_scheduler": {
         "type": "reduce_lr",
         "params": {
             "step_per_iter": false,
-            "initial_lr": 0.0375
+            "initial_lr": 0.375
         }
     },
-    "num_epochs": 3,
-    "batch_size": 8
+    "num_epochs": 40,
+    "batch_size": 10
 }

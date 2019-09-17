@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
 
-__all__ = ['resnet50', 'resnet101', 'resnet152', 'resnet200']
-
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -100,10 +98,9 @@ class SlowFast(nn.Module):
         # if self.mode == 'test':
             # self.set_fully_conv_test()
 
-
     def forward(self, input):
-        fast, lateral = self.FastPath(input[:, :, ::2, :, :])
-        slow = self.SlowPath(input[:, :, ::16, :, :], lateral)
+        fast, lateral = self.FastPath(input[:, :, :, :, :])
+        slow = self.SlowPath(input[:, :, ::8, :, :], lateral)
         x = torch.cat([slow, fast], dim=1)
         x = self.dp(x)
         x = self.fc(x)
