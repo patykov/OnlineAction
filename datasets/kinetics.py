@@ -14,7 +14,7 @@ class Kinetics(VideoDataset):
         video_list = [x.strip().split(' ') for x in open(self.list_file)]
 
         if self.subset:  # Subset for tests!!!
-            video_list = [v for i, v in enumerate(video_list) if i % 100 == 0]
+            video_list = [v for i, v in enumerate(video_list) if i % 500 == 0]
 
         self.video_list = video_list
 

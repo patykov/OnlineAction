@@ -52,12 +52,11 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
     metric.reset()
     running_loss = m.AverageMeter('running_loss')
 
-    with tqdm(
-            desc='\nEpoch {}/{} - {}'.format(epoch, num_epochs, 'Train' if is_train else 'Val'),
-            total=len(dataloader.dataset),
-            leave=False,
-            maxinterval=3600,
-            disable=(hvd.rank() != 0)) as t:
+    with tqdm(desc='\nEpoch {}/{} - {}'.format(epoch, num_epochs, 'Train' if is_train else 'Val'),
+              total=len(dataloader.dataset),
+              leave=False,
+              maxinterval=3600,
+              disable=(hvd.rank() != 0)) as t:
         with torch.set_grad_enabled(is_train):
             for (data, label) in dataloader:  # Iterate on the data
                 batch_samples = torch.tensor(data.shape[0]).item()
@@ -72,10 +71,12 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
                 metric.add(outputs, targets)
 
                 if running_loss.count - offset >= t.total // 10:  # Update progressbar every 10%
-                    t.set_postfix({
-                        'loss': '{:.4f}'.format(running_loss.avg),
-                        metric.name: str(metric)
-                    }, refresh=False)
+                    t.set_postfix(
+                        {
+                            'loss': '{:.4f}'.format(running_loss.avg),
+                            metric.name: str(metric)
+                        },
+                        refresh=False)
                     t.update(running_loss.count - offset)
                     offset = running_loss.count
 
@@ -104,12 +105,12 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
     best_model_metric = 0.0
 
     # Data loaders
-    train_loader = get_dataloader(
-        dataset, train_file, train_data, config['batch_size'], mode='train',
-        sample_frames=sample_frames, num_workers=num_workers, distributed=True, subset=subset)
-    val_loader = get_dataloader(
-        dataset, val_file, val_data, config['batch_size'], mode='val',
-        sample_frames=sample_frames, num_workers=num_workers, distributed=True, subset=subset)
+    train_loader = get_dataloader(dataset, train_file, train_data, config['batch_size'],
+                                  mode='train', sample_frames=sample_frames,
+                                  num_workers=num_workers, distributed=True, subset=subset)
+    val_loader = get_dataloader(dataset, val_file, val_data, config['batch_size'],
+                                mode='val', sample_frames=sample_frames,
+                                num_workers=num_workers, distributed=True, subset=subset)
     num_classes = train_loader.dataset.num_classes
     multi_label = train_loader.dataset.multi_label
 
@@ -118,21 +119,30 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
     val_metric = m.mAP() if multi_label else m.TopK()
 
     # Model
-    model = get_model(arch=arch, backbone=backbone, pretrained_weights=pretrained_weights,
-                      mode='train', num_classes=num_classes, non_local=config['nonlocal'],
-                      frame_num=sample_frames, fine_tune=fine_tune, log_name='training')
+    model = get_model(arch=arch,
+                      backbone=backbone,
+                      pretrained_weights=pretrained_weights,
+                      mode='train',
+                      num_classes=num_classes,
+                      non_local=config['nonlocal'],
+                      frame_num=sample_frames,
+                      fine_tune=fine_tune,
+                      log_name='training')
 
     # Epochs, optimizer, scheduler, criterion
     num_epochs = config['num_epochs']
-    optimizer, scheduler = get_optimizer(
-        model, config['learning_scheduler'], config['weight_decay'], distributed=True)
+    optimizer, scheduler = get_optimizer(model,
+                                         config['learning_scheduler'],
+                                         config['weight_decay'],
+                                         distributed=True)
 
     if multi_label:
         pos_weight = torch.load(pos_weight_file).cuda() if pos_weight_file else None
 
         def criterion(outputs, labels):
-            return F.binary_cross_entropy_with_logits(
-                outputs, labels.type_as(outputs), pos_weight=pos_weight)
+            return F.binary_cross_entropy_with_logits(outputs,
+                                                      labels.type_as(outputs),
+                                                      pos_weight=pos_weight)
     else:
 
         def criterion(outputs, labels):
@@ -171,8 +181,8 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
             LOG.info('Batch size: {:d} (per GPU)'.format(config['batch_size']))
             LOG.info('Using {:d} horovod process{}'.format(hvd.size(),
                                                            'es' if hvd.size() > 1 else ''))
-            LOG.info('Thus, using a total batch size of: {:d}'.format(
-                config['batch_size'] * hvd.size()))
+            LOG.info('Thus, using a total batch size of: {:d}'.format(config['batch_size'] *
+                                                                      hvd.size()))
             LOG.info('Saving results to {}\n'.format(os.path.abspath(checkpoint_path)))
             LOG.info('\nNumber of trainable parameters: {}'.format(
                 sum(p.numel() for p in model.parameters() if p.requires_grad)))
@@ -189,9 +199,8 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
     for epoch in range(initial_epoch, num_epochs):
         b = time.time()
         # Train for one epoch
-        train_loss = run_epoch(model, train_loader, epoch, num_epochs, criterion,
-                               train_metric, True, optimizer,
-                               scheduler if scheduler.step_per_iter else None)
+        train_loss = run_epoch(model, train_loader, epoch, num_epochs, criterion, train_metric,
+                               True, optimizer, scheduler if scheduler.step_per_iter else None)
         e1 = time.time()
 
         meta['loss'].append(train_loss.avg)
@@ -199,8 +208,7 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
 
         # Validate
         b2 = time.time()
-        val_loss = run_epoch(model, val_loader, epoch, num_epochs, criterion,
-                             val_metric, False)
+        val_loss = run_epoch(model, val_loader, epoch, num_epochs, criterion, val_metric, False)
         e = time.time()
 
         meta['val_loss'].append(val_loss.avg)
@@ -215,7 +223,8 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
             if os.path.exists(checkpoint_path):
                 os.rename(checkpoint_path, backup_path)
             save_checkpoint(checkpoint_path, model, meta, optimizer, scheduler)
-            if val_metric.value > best_model_metric:
+            if (val_metric.value[0] if isinstance(val_metric.value, list) else
+                    val_metric.value) > best_model_metric:
                 save_checkpoint(best_model_path, model, meta, optimizer, scheduler)
                 best_model_metric = val_metric.value
 
@@ -225,38 +234,39 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
             prefix = 'Epoch {}/{} - '.format(epoch + 1, num_epochs)
             tmp = ('{prefix}{phase:>5}: loss = {loss:.4f}, {metric.name} = {metric}.'
                    ' {phase} time: {time:.2f}s ({rate:.2f} samples/s)')
-            train_string = tmp.format(
-                prefix=prefix,
-                phase='Train',
-                loss=train_loss.avg,
-                metric=train_metric,
-                time=train_time,
-                rate=train_loss.count / train_time)
-            val_string = tmp.format(
-                prefix=' ' * len(prefix),
-                phase='Val',
-                loss=val_loss.avg,
-                metric=val_metric,
-                time=val_time,
-                rate=val_loss.count / val_time)
+            train_string = tmp.format(prefix=prefix,
+                                      phase='Train',
+                                      loss=train_loss.avg,
+                                      metric=train_metric,
+                                      time=train_time,
+                                      rate=train_loss.count / train_time)
+            val_string = tmp.format(prefix=' ' * len(prefix),
+                                    phase='Val',
+                                    loss=val_loss.avg,
+                                    metric=val_metric,
+                                    time=val_time,
+                                    rate=val_loss.count / val_time)
             LOG.info('{}\n{}'.format(train_string, val_string))
+            LOG.info('Learning weight: {:.3e}'.format(optimizer.param_groups[0]['lr']))
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_file',
-                        required=True,
-                        help='JSON configuration file')
-    parser.add_argument('--train_map_file', type=str,
+    parser.add_argument('--config_file', required=True, help='JSON configuration file')
+    parser.add_argument('--train_map_file',
+                        type=str,
                         required=True,
                         help='Full path to the file that maps train data')
-    parser.add_argument('--val_map_file', type=str,
+    parser.add_argument('--val_map_file',
+                        type=str,
                         required=True,
                         help='Full path to the file that maps val data')
-    parser.add_argument('--train_data_path', type=str,
+    parser.add_argument('--train_data_path',
+                        type=str,
                         required=True,
                         help='Full path to the training videos directory')
-    parser.add_argument('--val_data_path', type=str,
+    parser.add_argument('--val_data_path',
+                        type=str,
                         help=('Full path to the validation videos directory.'
                               'If None, will be used val_data_path = train_data_path'),
                         default=None)
@@ -267,36 +277,37 @@ def main():
     parser.add_argument('--outputdir',
                         help='Output directory for checkpoints and models',
                         default=None)
-    parser.add_argument('--sample_frames', type=int, default=32,
+    parser.add_argument('--sample_frames',
+                        type=int,
+                        default=32,
                         help='Number of frames to be sampled in the input.')
     parser.add_argument('--dataset', type=str, default='charades')
-    parser.add_argument('--filename',
-                        help='Checkpoint and logging filenames',
-                        default=None)
+    parser.add_argument('--filename', help='Checkpoint and logging filenames', default=None)
     parser.add_argument('--restart',
                         help=('Restart from scratch (instead of restarting from checkpoint ',
                               'file by default)'),
                         action='store_true')
-    parser.add_argument('--subset',
-                        action='store_true')
+    parser.add_argument('--subset', action='store_true')
     parser.add_argument('--fine_tune',
                         help=('Fine-tune the model from the weights stored in pretrained_weights.'),
                         action='store_true')
-    parser.add_argument('--workers', type=int,
+    parser.add_argument('--workers',
+                        type=int,
                         help='Number of workers on the data loading subprocess',
                         default=4)
 
     args = parser.parse_args()
 
-    assert args.dataset in ['kinetics', 'charades'], (
-        'Dataset {} not available. Choose between "kinetics" or "charades".'.format(args.dataset))
+    assert args.dataset in [
+        'kinetics', 'charades'
+    ], ('Dataset {} not available. Choose between "kinetics" or "charades".'.format(args.dataset))
 
     # STUFF
     val_data_path = args.val_data_path if args.val_data_path else args.train_data_path
     filename = args.filename if args.filename else os.path.splitext(
         os.path.basename(args.config_file))[0]
     outputdir = os.path.join(args.outputdir, filename) if args.outputdir else os.path.join(
-            os.path.dirname(__file__), '..', 'outputs', filename)
+        os.path.dirname(__file__), '..', 'outputs', filename)
     checkpoint_path = os.path.join(outputdir, filename + '.pth')
     os.makedirs(outputdir, exist_ok=True)
 

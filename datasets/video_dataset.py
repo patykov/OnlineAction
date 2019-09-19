@@ -98,16 +98,22 @@ class VideoDataset(data.Dataset):
 
     def __getitem__(self, index):
         label, video_path = self.video_list[index]
-        record = VideoRecord(os.path.join(self.root_path, video_path), label)
+        try:
+            record = VideoRecord(os.path.join(self.root_path, video_path), label)
 
-        if self.mode in ['train', 'val']:
-            segment_indices = self._get_train_indices(record)
-            target = self._get_train_target(record, segment_indices)
-        else:
-            segment_indices = self._get_test_indices(record)
-            target = self._get_test_target(record)
+            if self.mode in ['train', 'val']:
+                segment_indices = self._get_train_indices(record)
+                target = self._get_train_target(record, segment_indices)
+            else:
+                segment_indices = self._get_test_indices(record)
+                target = self._get_test_target(record)
+            data = self.get(record, segment_indices)
 
-        data = self.get(record, segment_indices)
+        except ValueError as e:
+            print(e)
+            index = randint(0, len(self.video_list) - 1)
+            data, target = self.__getitem__(index)
+
         return data, target
 
     def get(self, record, indices):
