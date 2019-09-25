@@ -119,29 +119,20 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
     val_metric = m.mAP() if multi_label else m.TopK()
 
     # Model
-    model = get_model(arch=arch,
-                      backbone=backbone,
-                      pretrained_weights=pretrained_weights,
-                      mode='train',
-                      num_classes=num_classes,
-                      non_local=config['nonlocal'],
-                      frame_num=sample_frames,
-                      fine_tune=fine_tune,
-                      log_name='training')
+    model = get_model(arch=arch, backbone=backbone, pretrained_weights=pretrained_weights,
+                      mode='train', num_classes=num_classes, non_local=config['nonlocal'],
+                      frame_num=sample_frames, fine_tune=fine_tune, log_name='training')
 
     # Epochs, optimizer, scheduler, criterion
     num_epochs = config['num_epochs']
-    optimizer, scheduler = get_optimizer(model,
-                                         config['learning_scheduler'],
-                                         config['weight_decay'],
-                                         distributed=True)
+    optimizer, scheduler = get_optimizer(model, config['learning_scheduler'],
+                                         config['weight_decay'], distributed=True)
 
     if multi_label:
         pos_weight = torch.load(pos_weight_file).cuda() if pos_weight_file else None
 
         def criterion(outputs, labels):
-            return F.binary_cross_entropy_with_logits(outputs,
-                                                      labels.type_as(outputs),
+            return F.binary_cross_entropy_with_logits(outputs, labels.type_as(outputs),
                                                       pos_weight=pos_weight)
     else:
 
@@ -234,17 +225,11 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
             prefix = 'Epoch {}/{} - '.format(epoch + 1, num_epochs)
             tmp = ('{prefix}{phase:>5}: loss = {loss:.4f}, {metric.name} = {metric}.'
                    ' {phase} time: {time:.2f}s ({rate:.2f} samples/s)')
-            train_string = tmp.format(prefix=prefix,
-                                      phase='Train',
-                                      loss=train_loss.avg,
-                                      metric=train_metric,
-                                      time=train_time,
+            train_string = tmp.format(prefix=prefix, phase='Train', loss=train_loss.avg,
+                                      metric=train_metric, time=train_time,
                                       rate=train_loss.count / train_time)
-            val_string = tmp.format(prefix=' ' * len(prefix),
-                                    phase='Val',
-                                    loss=val_loss.avg,
-                                    metric=val_metric,
-                                    time=val_time,
+            val_string = tmp.format(prefix=' ' * len(prefix), phase='Val', loss=val_loss.avg,
+                                    metric=val_metric, time=val_time,
                                     rate=val_loss.count / val_time)
             LOG.info('{}\n{}'.format(train_string, val_string))
             LOG.info('Learning weight: {:.3e}'.format(optimizer.param_groups[0]['lr']))

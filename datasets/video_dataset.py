@@ -79,12 +79,13 @@ class VideoDataset(data.Dataset):
         Returns:
             offsets : List of image indices to be loaded from a video.
         """
+        expanded_sample_length = int(self.clip_length * record.fps)
         sample_start_pos = np.linspace(
-            self.clip_length * record.fps, record.num_frames-1, self.test_clips, dtype=int)
+            expanded_sample_length, record.num_frames-1, self.test_clips, dtype=int)
         offsets = []
         for p in sample_start_pos:
             offsets.extend(np.linspace(
-                max(p-self.clip_length * record.fps, 0),
+                max(p-expanded_sample_length, 0),
                 min(p, record.num_frames-1),
                 self.sample_frames, dtype=int))
 

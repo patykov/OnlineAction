@@ -15,7 +15,7 @@ def get_dataloader(dataset, data_file, data, batch_size, mode, sample_frames=8, 
             dataset, num_replicas=hvd.size(), rank=hvd.rank())
         args = {'sampler': sampler}
     else:
-        args = {'shuffle': False if mode == 'train' else True}
+        args = {'shuffle': True if mode == 'train' else False}
 
     loader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, **args,

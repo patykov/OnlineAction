@@ -7,8 +7,8 @@ import horovod.torch as hvd
 import torch.nn.parallel
 from torch.nn import AvgPool1d, MaxPool1d
 
-import datasets
 import metrics.metrics as m
+from datasets.get import get_dataloader
 from models.get import get_model
 from utils import setup_logger
 
@@ -21,41 +21,37 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     RESULTS = logging.getLogger(name='results')
 
     # Loading data
-    Dataset = getattr(datasets, dataset.capitalize())
-    dataset = Dataset(root_data_path, map_file, sample_frames=sample_frames,
-                      mode=mode)
-
-    sampler = torch.utils.data.distributed.DistributedSampler(
-        dataset, num_replicas=hvd.size(), rank=hvd.rank())
-    data_loader = torch.utils.data.DataLoader(
-        dataset, sampler=sampler, batch_size=1, num_workers=workers, pin_memory=True)
-
-    total_num = len(dataset)
+    data_loader = get_dataloader(dataset, map_file, root_data_path, 1, mode=mode,
+                                 sample_frames=sample_frames, num_workers=workers,
+                                 distributed=True)
+    total_num = len(data_loader.dataset)
+    num_classes = data_loader.dataset.num_classes
     data_gen = enumerate(data_loader, start=1)
+
     data_time = time.time()
     LOG.info('Loading dataset took {:.3f}s'.format(data_time - start_time))
     LOG.debug(data_loader.dataset)
 
     # Loading model
     model = get_model(arch=arch, backbone=backbone, pretrained_weights=pretrained_weights,
-                      mode=mode, num_classes=dataset.num_classes, non_local=baseline,
+                      mode=mode, num_classes=num_classes, non_local=baseline,
                       frame_num=sample_frames, log_name='eval')
     model.eval()
     model_time = time.time()
 
-    if dataset.multi_label:
+    if data_loader.dataset.multi_label:
         def video_output(outputs):
-            max_pool = MaxPool1d(dataset.test_clips)
+            max_pool = MaxPool1d(data_loader.dataset.test_clips)
             avg_pool = AvgPool1d(3)
 
-            data = outputs.view(1, -1, dataset.num_classes).contiguous()
+            data = outputs.view(1, -1, num_classes).contiguous()
             data = data.permute(0, 2, 1).contiguous()
 
             data = max_pool(data)
             if mode == 'test':
                 # During test, fullyconv transform takes 3 random crops of each clip
                 data = avg_pool(data)
-            video_data = data.view(-1, dataset.num_classes).contiguous()
+            video_data = data.view(-1, num_classes).contiguous()
 
             return video_data
 
@@ -69,7 +65,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     LOG.info('Loading model took {:.3f}s'.format(model_time - data_time))
     LOG.debug(model)
 
-    video_metric = m.Video_mAP(m.mAP()) if dataset.multi_label else m.Video_Accuracy(
+    video_metric = m.Video_mAP(m.mAP()) if data_loader.dataset.multi_label else m.Video_Accuracy(
         m.TopK(k=(1, 5)))
     batch_time = m.AverageMeter('batch_time')
     data_time = m.AverageMeter('data_time')
