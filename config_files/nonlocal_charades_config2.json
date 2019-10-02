@@ -1,0 +1,14 @@
+{
+    "nonlocal": "True",
+    "weight_decay": 1e-4,
+    "learning_scheduler": {
+        "type": "lambda_lr",
+        "params": {
+            "step_per_iter": true,
+            "learning_rate": [
+                [75000, 0.00125], [75000, 0.000125], [50000, 0.0000125]]
+        }
+    },
+    "num_epochs": 200,
+    "batch_size": 1
+}

@@ -1,0 +1,14 @@
+{
+    "nonlocal": "True",
+    "weight_decay": 1e-6,
+    "learning_scheduler": {
+        "type": "cosine_lr",
+        "params": {
+            "step_per_iter": true,
+            "T_max": 25000,
+            "initial_lr": 0.375
+        }
+    },
+    "num_epochs": 50,
+    "batch_size": 8
+}

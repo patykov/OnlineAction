@@ -2,8 +2,8 @@ import argparse
 import os
 import sys
 
-from metric_tools import charades_classify as cc
-from metric_tools import kinetics_classify as kc
+from metrics import charades_classify as cc
+from metrics import kinetics_classify as kc
 
 
 class Runnercommands():
@@ -48,8 +48,8 @@ class Runnercommands():
 
 def get_results_file_name(file_name):
     base, file_name = os.path.split(file_name)
-    name, ext = os.path.splitext(file_name)
-    output_file = os.path.join(base, name+'_results'+ext)
+    name, _ = os.path.splitext(file_name)
+    output_file = os.path.join(base, name+'_results.txt')
 
     return output_file
 

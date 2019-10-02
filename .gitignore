@@ -5,11 +5,11 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-
 .pytest_cache/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+*/.ipynb_checkpoints/*
 
 # pyenv
 .python-version
@@ -26,10 +26,12 @@ venv.bak/
 # mypy
 .mypy_cache/
 
-### VisualStudioCode ###
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-.history
+# VisualStudioCode
+.vscode/
+
+# Model outputs
+outputs/
+
+# Philly running files
+*.yaml
+*.diff

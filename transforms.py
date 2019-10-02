@@ -31,69 +31,49 @@ class GroupRandomCrop(object):
 
         return out_images
 
+    def __repr__(self):
+        return '{} (Size: {})'.format(self.__class__.__name__, self.size)
+
 
 class GroupFullyConv(object):
 
     def __init__(self, size):
+        self.size = size
         self.worker = GroupRandomCrop(size)
 
     def __call__(self, img_group):
         crops = [self.worker(img_group) for _ in range(3)]
         return [item for sublist in crops for item in sublist]
 
+    def __repr__(self):
+        return '{} (Size: {})'.format(self.__class__.__name__, self.size)
+
 
 class GroupCenterCrop(object):
 
     def __init__(self, size):
+        self.size = size
         self.worker = torchvision.transforms.CenterCrop(size)
 
     def __call__(self, img_group):
         return [self.worker(img) for img in img_group]
 
-
-class ConditionedGroupCenterCrop(object):
-
-    def __init__(self, max_size=808, sec_size=256):
-        self.max_size = max_size
-        self.sec_size = sec_size
-        self.w_worker = torchvision.transforms.CenterCrop((sec_size, self.max_size))
-        self.h_worker = torchvision.transforms.CenterCrop((self.max_size, sec_size))
-
-    def __call__(self, img_group):
-        w, h = img_group[0].size
-
-        if w > self.max_size:
-            print('\nNeed to crop width dimention! Image size from: {}x{} to {}x{}\n'.format(
-                w, h, self.max_size, self.sec_size))
-            return [self.w_worker(img) for img in img_group]
-        elif h > self.max_size:
-            print('\nNeed to crop heigth dimention! Image size from: {}x{} to {}x{}\n'.format(
-                w, h, self.sec_size, self.max_size))
-            return [self.h_worker(img) for img in img_group]
-        else:
-            return img_group
-
-
-class GroupTenCrop(object):
-
-    def __init__(self, size):
-        self.worker = torchvision.transforms.TenCrop(size)
-
-    def __call__(self, img_group):
-        cropped_imgs = [self.worker(img) for img in img_group]
-        reordered_imgs = [[group[i] for group in cropped_imgs] for i in range(10)]
-        return [img for sublist in reordered_imgs for img in sublist]
+    def __repr__(self):
+        return '{} (Size: {})'.format(self.__class__.__name__, self.size)
 
 
 class GroupRandomHorizontalFlip(object):
 
-    def __call__(self, img_group, is_flow=False):
+    def __call__(self, img_group):
         v = random.random()
         if v < 0.5:
             ret = [img.transpose(Image.FLIP_LEFT_RIGHT) for img in img_group]
             return ret
         else:
             return img_group
+
+    def __repr__(self):
+        return self.__class__.__name__
 
 
 class GroupNormalize(object):
@@ -107,20 +87,30 @@ class GroupNormalize(object):
 
         return tensor
 
+    def __repr__(self):
+        return '{} (Mean: {}, Std: {})'.format(self.__class__.__name__, self.mean, self.std)
+
 
 class GroupResize(object):
 
     def __init__(self, size, interpolation=Image.BILINEAR):
+        self.size = size
         self.worker = torchvision.transforms.Resize(size, interpolation)
 
     def __call__(self, img_group):
         return [self.worker(img) for img in img_group]
+
+    def __repr__(self):
+        return '{} (Size: {})'.format(self.__class__.__name__, self.size)
 
 
 class GroupToTensorStack(object):
 
     def __call__(self, img_group):
         return torch.stack([torchvision.transforms.ToTensor()(img) for img in img_group], dim=1)
+
+    def __repr__(self):
+        return self.__class__.__name__
 
 
 class GroupRandomResize(object):
@@ -135,3 +125,6 @@ class GroupRandomResize(object):
         worker = torchvision.transforms.Resize(size)
 
         return [worker(img) for img in img_group]
+
+    def __repr__(self):
+        return '{} (Min Size: {}, Max Size: {})'.format(self.__class__.__name__, self.min, self.max)

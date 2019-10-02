@@ -1,64 +1,26 @@
 import csv
 import os
 
-import numpy as np
 import torch
-import torch.utils.data as data
-import torchvision
-from numpy.random import randint
 
-import transforms as t
-from log_tools.charades_log import CharadesLog
-
-from .video_dataset import VideoRecord
+from .video_dataset import VideoDataset, VideoRecord
 
 
-class Charades(data.Dataset):
-    """ Charades Dataset.
-    Args:
-        root_path: Full path to the dataset videos directory.
-        list_file: Full path to the file that lists the videos to be considered (train, val, test)
-            with its annotations.
-        sample_frames: Number of frames used in the input (temporal dim)
-        stride: Temporal stride used to collect the sample_frames(E.g.: An input of 32 frames with
-            stride of 2 reaches a temporal depth of 64 frames (32x2). As does an input of 8 frames
-            with a stride of 8 (8x8).)
-        mode: Set the dataset mode as 'train', 'val' or 'test'.
-        transform: A function that takes in an PIL image and returns a transformed version.
-    """
-    input_mean = [0.485, 0.456, 0.406]
-    input_std = [0.229, 0.224, 0.225]
-    FPS, GAP, testGAP = 24, 4, 25
+class Charades(VideoDataset):
+    """ Charades Dataset """
     num_classes = 157
-
-    def __init__(self, root_path, list_file, sample_frames=32, transform=None,
-                 mode='train', test_clips=25, causal=False):
-        self.root_path = root_path
-        self.list_file = list_file
-        self.sample_frames = sample_frames
-        self.stride = 2 if self.sample_frames == 32 else 8
-        self.mode = mode
-        self.test_clips = test_clips
-        self.causal = causal
-
-        if transform is not None:
-            self.transform = transform
-        else:
-            self.transform = self.default_transforms()
-
-        self.video_list = self._parse_list()
+    multi_label = True
 
     def _parse_list(self):
         """
-        Returns:
-            video_list: List of the videos relative path and their labels in the format:
-                        [label, video_path].
+        Parses the annotation file to create a list of the videos relative path and their labels
+        in the format: [label, video_path].
         """
         video_list = []
         with open(self.list_file) as f:
             reader = csv.DictReader(f)
             for row in reader:
-                vid = row['id']
+                vid = row['id'] + '.mp4'
                 actions = row['actions']
                 if actions == '':
                     actions = []
@@ -68,118 +30,68 @@ class Charades(data.Dataset):
                         y), 'end': float(z)} for x, y, z in actions]
                 video_list.append([actions, vid])
 
-        return video_list
+        if self.subset:  # Subset for tests!!!
+            video_list = [v for i, v in enumerate(video_list) if i % 10 == 0]
 
-    def _get_train_indices(self, record):
-        expanded_sample_length = self.sample_frames * self.stride
-        if record.num_frames >= expanded_sample_length:
-            start_pos = randint(record.num_frames - expanded_sample_length + 1)
-            offsets = range(start_pos, start_pos + expanded_sample_length, self.stride)
-        elif record.num_frames > self.sample_frames:
-            start_pos = randint(record.num_frames - self.sample_frames + 1)
-            offsets = range(start_pos, start_pos + self.sample_frames, 1)
-        else:
-            offsets = np.sort(randint(record.num_frames, size=self.sample_frames))
+        self.video_list = video_list
 
-        offsets = [int(v) for v in offsets]
-
-        target = torch.IntTensor(157).zero_()
+    def _get_train_target(self, record, offsets):
+        """
+        Args:
+            record : VideoRecord object
+            offsets : List of image indices to be loaded from a video.
+        Returns:
+            target: Dict with the binary list of labels from a video.
+        """
+        target = torch.IntTensor(self.num_classes).zero_()
         for frame in offsets:
             for l in record.label:
-                if l['start'] < frame/float(self.FPS) < l['end']:
+                if l['start'] < frame/float(record.fps) < l['end']:
                     target[int(l['class'][1:])] = 1
-        return offsets, target
 
-    def _get_test_indices(self, record):
+        return {'target': target}
+
+    def _get_test_target(self, record):
         """
-        Argument:
+        Args:
             record : VideoRecord object
         Returns:
-            offsets : List of image indices to be loaded
+            target: Dict with the binary list of labels from a video and its relative path.
         """
-        sample_start_pos = np.linspace(
-            self.sample_frames*self.stride, record.num_frames-1, self.test_clips, dtype=int)
-        offsets = []
-        for p in sample_start_pos:
-            offsets.extend(np.linspace(
-                max(p-self.sample_frames*self.stride + self.stride, 0),
-                min(p, record.num_frames-1),
-                self.sample_frames, dtype=int))
-
-        target = torch.IntTensor(157).zero_()
+        target = torch.IntTensor(self.num_classes).zero_()
         for l in record.label:
             target[int(l['class'][1:])] = 1
 
-        return offsets, target
+        return {'target': target, 'video_path': os.path.splitext(os.path.basename(record.path))[0]}
 
-    def __getitem__(self, index):
-        label, video_path = self.video_list[index]
-        record = VideoRecord(os.path.join(self.root_path, video_path+'.mp4'), label)
 
-        if self.mode == 'train':
-            segment_indices, target = self._get_train_indices(record)
-            process_data = self.get(record, segment_indices)
-            while process_data is None:
-                index = randint(0, len(self.video_list) - 1)
-                process_data, target = self.__getitem__(index)
-        else:
-            segment_indices, target = self._get_test_indices(record)
-            process_data = self.get(record, segment_indices)
-            if process_data is None:
-                raise ValueError('sample indices:', record.path, segment_indices)
+def calculate_charades_pos_weight(list_file, root_path, output_dir):
+    video_list = []
+    total_frames = 0
+    with open(list_file) as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            vid = row['id']
+            actions = row['actions']
 
-        data = process_data.squeeze(0)
-        data = data.view(3, -1, self.sample_frames, data.size(2), data.size(3)).contiguous()
-        data = data.permute(1, 0, 2, 3, 4).contiguous()
+            if actions == '':
+                actions = []
+            else:
+                actions = [a.split(' ') for a in actions.split(';')]
+                actions = [{'class': x, 'start': float(
+                    y), 'end': float(z)} for x, y, z in actions]
 
-        return data, target if self.mode == 'train' else video_path
+            record = VideoRecord(os.path.join(root_path, vid+'.mp4'), actions)
+            total_frames += int(float(row['length']) * record.fps)
 
-    def get(self, record, indices):
-        uniq_id = np.unique(indices)
-        uniq_imgs = record.get_frames(uniq_id)
+            video_list.append([actions, record.fps])
 
-        if None in uniq_imgs:
-            return None
+    positive_frames_per_class = torch.FloatTensor(157).zero_()
+    for label, fps in video_list:
+        for l in label:
+            frame_start = int(l['start'] * fps)
+            frame_end = int(l['end'] * fps)
+            positive_frames_per_class[int(l['class'][1:])] += frame_end - frame_start
+    pos_weight = torch.FloatTensor([(total_frames-p)/p for p in positive_frames_per_class])
 
-        images = [uniq_imgs[i] for i in indices]
-        images = self.transform(images)
-        return images
-
-    def __len__(self):
-        return len(self.video_list)
-
-    def default_transforms(self):
-        """
-        Returns:
-            A transform function to be applied in the PIL images.
-        """
-        if self.mode == 'val':
-            cropping = torchvision.transforms.Compose([
-                t.GroupResize(256),
-                t.GroupCenterCrop(224)
-            ])
-        elif self.mode == 'test':
-            cropping = torchvision.transforms.Compose([
-                t.GroupResize(256),
-                t.GroupFullyConv(256)
-            ])
-        elif self.mode == 'train':
-            cropping = torchvision.transforms.Compose([
-                t.GroupRandomResize(256, 320),
-                t.GroupRandomCrop(224),
-                t.GroupRandomHorizontalFlip()
-            ])
-        else:
-            raise ValueError('Mode {} does not exist. Choose between: val, test or train.'.format(
-                self.mode))
-
-        transforms = torchvision.transforms.Compose([
-                cropping,
-                t.GroupToTensorStack(),
-                t.GroupNormalize(mean=self.input_mean, std=self.input_std)
-            ])
-
-        return transforms
-
-    def set_log(self, output_file):
-        return CharadesLog(self.list_file, output_file, self.causal, self.test_clips)
+    torch.save(pos_weight, os.path.join(output_dir, 'charades_pos_weight.pt'))

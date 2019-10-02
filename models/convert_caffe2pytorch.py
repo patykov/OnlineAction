@@ -4,7 +4,7 @@ import re
 
 import torch
 
-from nonlocal_net import resnet50
+from models.baselines.nonlocal_net import resnet50
 
 
 def convert_i3d_weights(weigths_file_path, new_model, save_model=False, new_model_name=None):

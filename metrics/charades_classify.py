@@ -68,8 +68,8 @@ def map_func(submission_array, gt_array):
                 avg_prec += prec[i]
         m_aps.append(avg_prec / n_pos.astype(float))
     m_aps = np.array(m_aps)
-    m_ap = np.mean(m_aps)
-    w_ap = (m_aps * gt_array.sum(axis=0) / gt_array.sum().astype(float))
+    m_ap = np.nanmean(m_aps)
+    w_ap = sum(m_aps * gt_array.sum(axis=0) / gt_array.sum().astype(float))
     return m_ap, w_ap, m_aps
 
 
@@ -116,12 +116,18 @@ def load_charades(gt_path):
     return gt_ids, gt_classes
 
 
-def save(log_file, gt_file, output_file):
+def save(log_file, gt_file, output_file, batch_time=None, data_time=None):
     mAP, wAP, ap = charades_v1_classify(log_file, gt_file)
-    print(sum(wAP), sum(ap))
+
     with open(output_file, 'w') as file:
         file.write('### MAP ### \n')
         file.write('{:.5f}'.format(mAP))
+
+        if batch_time and data_time:
+            file.write('\n\n### Eval Time ###\n')
+            file.write('Batch Time: {batch_time.avg:.3f}s avg. | '
+                       'Data loading time: {data_time.avg:.3f}s avg.\n'.format(
+                        batch_time=batch_time, data_time=data_time))
 
         file.write('\n\n{:5} | {:10} | {:10}\n'.format(
             'class', 'avg. prec.', 'weighted avg. prec.'))
