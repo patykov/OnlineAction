@@ -1,9 +1,13 @@
 import csv
+import os
+import time
 
 import numpy as np
 
+from datasets.video_stream import VideoStream
 
-def charades_v1_classify(cls_file, gt_path):
+
+def charades_v1_classify(cls_file, gt_path, per_frame=False, calibrated=False):
     """
         Evaluate charades dataset for multi-label classification per video.
         Adapted from Charades_v1_classify.m code from charades dataset providers.
@@ -18,38 +22,50 @@ def charades_v1_classify(cls_file, gt_path):
             map: MAP
 
     """
-    gt_ids, gt_classes = load_charades(gt_path)
-    n_classes = 157
+    t1 = time.time()
+    gt_ids, gt_classes = read_file(gt_path) if per_frame else load_charades(gt_path)
+    w_array = get_w_array(gt_classes) if calibrated else None
     n_test = len(gt_ids)
+
+    t2 = time.time()
+    print('Load GT file in {}'.format(t2-t1))
 
     # Load test scores
     test_ids, test_scores = read_file(cls_file)
+
+    t3 = time.time()
+    print('Load test scores file in {}'.format(t3-t2))
+
     n = len(test_scores)
     if n < n_test:
-        print('Warning: {} Videos missing\n'.format(n_test-n))
+        print('Warning: {} items missing\n'.format(n_test-n))
+        # For partial evaluation
+        subset_gt_classes = []
+        for gt_i, gt_id in enumerate(gt_ids):
+            if gt_id in test_ids:
+                subset_gt_classes.append(gt_classes[gt_i])
+        gt_classes = subset_gt_classes
     elif n_test < n:
-        print('Warning: {} Extra videos\n'.format(n-n_test))
+        # Check if its duplicate items
+        test_ids, test_index_order = np.unique(test_ids, return_index=True)
+        test_scores = np.array(test_scores)[test_index_order]
+        n = len(test_scores)
+        if n_test < n:
+            raise RuntimeError('There are {} extra items!'.format(n-n_test))
 
-    predictions = {}
-    for i, vid in enumerate(test_ids):
-        predictions[vid] = test_scores[i]
+    t4 = time.time()
+    print('Adjust files in {}'.format(t4-t3))
 
-    # Compare test scores to ground truth
-    gtlabel = np.zeros((n_test, n_classes))
-    test = np.zeros((n_test, n_classes))
-    for i, vid in enumerate(gt_ids):
-        gtlabel[i, gt_classes[i]] = 1
-        if vid in predictions:  # For partial evaluation
-            test[i, :] = predictions[vid]
+    mAP, wAP, ap = charades_map(np.array(test_scores), np.array(gt_classes), w_array)
+    print('MAP: {:.02%}\n'.format(mAP))
 
-    mAP, wAP, ap = charades_map(test, gtlabel)
-
-    print('MAP: {:.5f}\n'.format(mAP))
+    t5 = time.time()
+    print('mAP in {}'.format(t5-t4))
 
     return mAP, wAP, ap
 
 
-def map_func(submission_array, gt_array):
+def map_func(submission_array, gt_array, w_array):
     """ Returns mAP, weighted mAP, and AP array """
     m_aps = []
     n_classes = submission_array.shape[1]
@@ -61,7 +77,9 @@ def map_func(submission_array, gt_array):
 
         t_pcs = np.cumsum(tp)
         f_pcs = np.cumsum(fp)
-        prec = t_pcs / (f_pcs+t_pcs).astype(float)
+
+        w_t_pcs = t_pcs * w_array[oc_i]
+        prec = w_t_pcs / (f_pcs + w_t_pcs).astype(float)
         avg_prec = 0
         for i in range(submission_array.shape[0]):
             if tp[i]:
@@ -69,11 +87,11 @@ def map_func(submission_array, gt_array):
         m_aps.append(avg_prec / n_pos.astype(float))
     m_aps = np.array(m_aps)
     m_ap = np.nanmean(m_aps)
-    w_ap = sum(m_aps * gt_array.sum(axis=0) / gt_array.sum().astype(float))
+    w_ap = np.nansum(m_aps * gt_array.sum(axis=0) / gt_array.sum().astype(float))
     return m_ap, w_ap, m_aps
 
 
-def charades_map(submission_array, gt_array):
+def charades_map(submission_array, gt_array, w_array=None):
     """
     Approximate version of the charades evaluation function
     For precise numbers, use the submission file with the official matlab script
@@ -82,8 +100,10 @@ def charades_map(submission_array, gt_array):
     fix = submission_array.copy()
     empty = np.sum(gt_array, axis=1) == 0
     fix[empty, :] = np.NINF
+    if w_array is None:
+        w_array = np.ones(submission_array.shape[1])
 
-    return map_func(fix, gt_array)
+    return map_func(fix, gt_array, w_array)
 
 
 def read_file(file_path):
@@ -116,12 +136,43 @@ def load_charades(gt_path):
     return gt_ids, gt_classes
 
 
-def save(log_file, gt_file, output_file, batch_time=None, data_time=None):
-    mAP, wAP, ap = charades_v1_classify(log_file, gt_file)
+def load_causal_charades(gt_path, data_path):
+    gt_ids = []
+    gt_classes = []
+    with open(gt_path) as f:
+        reader = csv.DictReader(f)
+        for ir, row in enumerate(reader):
+            vid = row['id']
+            actions = row['actions']
+            if actions == '':
+                actions = []
+            else:
+                actions = [a.split(' ') for a in actions.split(';')]
+                actions = [{
+                    'class': x,
+                    'start': float(y),
+                    'end': float(z)
+                } for x, y, z in actions]
+            video_stream = VideoStream(os.path.join(data_path, vid+'.mp4'), actions)
+            first_frame = video_stream.first_frame
+            frame_target = video_stream.target['target']
+            for f_id, frame_t in enumerate(frame_target):
+                gt_ids.append('{}_{:06d}'.format(vid, first_frame + f_id))
+                gt_classes.append(frame_t.numpy())
+
+    return gt_ids, gt_classes
+
+
+def save(log_file, gt_file, output_file, per_frame=False, calibrated=False,
+         batch_time=None, data_time=None):
+    mAP, wAP, ap = charades_v1_classify(log_file, gt_file, per_frame, calibrated)
 
     with open(output_file, 'w') as file:
-        file.write('### MAP ### \n')
-        file.write('{:.5f}'.format(mAP))
+        file.write('### {}MAP ### \n'.format('Calibrated ' if calibrated else ''))
+        file.write('{:.02%}'.format(mAP))
+
+        file.write('\n\n### {}wAP ### \n'.format('Calibrated ' if calibrated else ''))
+        file.write('{:.02%}'.format(wAP))
 
         if batch_time and data_time:
             file.write('\n\n### Eval Time ###\n')
@@ -129,7 +180,19 @@ def save(log_file, gt_file, output_file, batch_time=None, data_time=None):
                        'Data loading time: {data_time.avg:.3f}s avg.\n'.format(
                         batch_time=batch_time, data_time=data_time))
 
-        file.write('\n\n{:5} | {:10} | {:10}\n'.format(
-            'class', 'avg. prec.', 'weighted avg. prec.'))
-        for i, (ap, wap) in enumerate(zip(ap, wAP)):
-            file.write('{:5} | {:10.5f} | {:10.5f}\n'.format(i, ap, wap))
+        file.write('\n\n{:5} | {:^5}\n'.format('class', '{}AP'.format('c' if calibrated else '')))
+        for i, ap in enumerate(ap):
+            file.write('{:5} | {:.02%}\n'.format(i, ap))
+
+
+def get_w_array(targets):
+    targets = np.array(targets, dtype='int')
+    num_classes = targets.shape[1]
+    pos_count = np.zeros(num_classes)
+    neg_count = np.zeros(num_classes)
+
+    sum_targets = targets.sum(axis=0)
+    pos_count = sum_targets
+    neg_count = (np.ones(num_classes)*len(targets) - sum_targets)
+
+    return neg_count/pos_count

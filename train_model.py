@@ -15,6 +15,8 @@ from datasets.get import get_dataloader
 from models.get import get_model
 from optim.get import get_optimizer
 
+torch.backends.cudnn.benchmarks = True
+
 
 def save_checkpoint(checkpoint_path, model, meta, optimizer, scheduler):
     if isinstance(model, nn.DataParallel):
@@ -105,12 +107,15 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
     best_model_metric = 0.0
 
     # Data loaders
-    train_loader = get_dataloader(dataset, train_file, train_data, config['batch_size'],
-                                  mode='train', sample_frames=sample_frames,
-                                  num_workers=num_workers, distributed=True, subset=subset)
-    val_loader = get_dataloader(dataset, val_file, val_data, config['batch_size'],
-                                mode='val', sample_frames=sample_frames,
-                                num_workers=num_workers, distributed=True, subset=subset)
+    train_loader = get_dataloader(dataset, list_file=train_file, root_path=train_data,
+                                  mode='train', sample_frames=sample_frames, subset=subset,
+                                  batch_size=config['batch_size'], num_workers=num_workers,
+                                  distributed=True)
+    val_loader = get_dataloader(dataset, list_file=val_file, root_path=val_data,
+                                mode='val', sample_frames=sample_frames, subset=subset,
+                                batch_size=config['batch_size'], num_workers=num_workers,
+                                distributed=True)
+
     num_classes = train_loader.dataset.num_classes
     multi_label = train_loader.dataset.multi_label
 

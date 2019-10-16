@@ -11,11 +11,11 @@ args = [
     '--root_data_path', '/data/Datasets/Charades/Charades_v1_480',
     '--pretrained_weights', '/data/OnlineActionRecognition/models/' +
                             'pre-trained/long-term-feature-banks/' +
-                            'charades_r50_i3d_nl_32x2.pth',
-    '--log_file', 'eval_charades_r50_i3d_nl_32x2_ltfb_crop3',
+                            'charades_r101_i3d_nl_32x2.pth',
+    '--log_file', 'eval_charades_r101_i3d_nl_32x2_ltfb_fps24',
     '--sample_frames', '32',
     '--dataset', 'charades',
-    '--backbone', 'resnet50',
+    '--backbone', 'resnet101',
     '--arch', 'nonlocal_net',
     '--mode', 'test'
 

@@ -39,8 +39,8 @@ class Metric:
         self.targets = []
 
     @torch.no_grad()
-    def add(self, output, target):
-        self._add(output, target)
+    def add(self, output, target, **kargs):
+        self._add(output, target, **kargs)
 
     @property
     def value(self):
@@ -101,6 +101,40 @@ class mAP(Metric):
         return '{:.02%}'.format(self.value)
 
 
+class cAP(Metric):
+    def __init__(self, num_classes):
+        self.num_classes = num_classes
+        super().__init__('cAP')
+
+    def reset(self):
+        super().reset()
+        self.pos_count = np.zeros(self.num_classes)
+        self.neg_count = np.zeros(self.num_classes)
+
+    def _add(self, output, target, synchronize=False):
+        prediction = torch.sigmoid(output)
+
+        targets = hvd.allgather(
+            target.cpu(), name=self.name + '_target') if synchronize else target.cpu()
+        self.targets.append(targets)
+        self.predictions.append(hvd.allgather(
+            prediction.cpu(), name=self.name + '_pred') if synchronize else prediction.cpu())
+
+        sum_targets = sum(targets).numpy()
+        self.pos_count += sum_targets
+        self.neg_count += (np.ones(self.num_classes)*len(targets) - sum_targets)
+
+    def _get_value(self):
+        mAP, _, _ = charades_map(
+            np.vstack(self.predictions),
+            np.vstack(self.targets),
+            self.neg_count/self.pos_count)
+        return mAP
+
+    def __repr__(self):
+        return '{:.02%}'.format(self.value)
+
+
 class Video_Wrapper:
     """ Metric wrapper that stores model predictions at video level evaluation in a text
     format."""
@@ -112,8 +146,8 @@ class Video_Wrapper:
         self.text = ''
         self.metric.reset()
 
-    def add(self, output, target):
-        self.metric.add(output, target['target'])
+    def add(self, output, target, **kargs):
+        self.metric.add(output, target['target'], **kargs)
         self.update_text(target)
 
     def update_text(self, target):
@@ -126,6 +160,18 @@ class Video_Wrapper:
         partial_results = self.text[:-2]  # Removing last '\n'
         self.text = ''
         return partial_results
+
+
+class Video_cAP(Video_Wrapper):
+    def update_text(self, target):
+        batch_size = target['target'].shape[0]
+        for img_id in range(batch_size):
+            video_frame = '{}_{:06d}'.format(
+                target['video_path'], target['last_frame'] + img_id)
+
+            self.text += '{} {}\n'.format(video_frame, np.array2string(
+                self.metric.predictions[-1][img_id].numpy(), separator=' ',
+                formatter={'float_kind': lambda x: '%.8f' % x})[1:-1].replace('\n', ''))
 
 
 class Video_mAP(Video_Wrapper):

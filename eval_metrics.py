@@ -40,16 +40,19 @@ class Runnercommands():
         parser = argparse.ArgumentParser()
         parser.add_argument('--log_file', type=str)
         parser.add_argument('--gt_file', type=str)
+        parser.add_argument('--per_frame', action='store_true')
+        parser.add_argument('--calibrated', action='store_true')
         args = parser.parse_args(sys.argv[2:])
 
-        output_file = get_results_file_name(args.log_file)
-        cc.save(args.log_file, args.gt_file, output_file)
+        output_file = get_results_file_name(args.log_file, args.per_frame, args.calibrated)
+        cc.save(args.log_file, args.gt_file, output_file, args.per_frame, args.calibrated)
 
 
-def get_results_file_name(file_name):
+def get_results_file_name(file_name, per_frame=False, calibrated=False):
     base, file_name = os.path.split(file_name)
     name, _ = os.path.splitext(file_name)
-    output_file = os.path.join(base, name+'_results.txt')
+    output_file = os.path.join(base, name+'_{}{}results.txt'.format(
+        'perframe_' if per_frame else '', 'calibrated_' if calibrated else ''))
 
     return output_file
 

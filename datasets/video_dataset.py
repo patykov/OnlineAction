@@ -6,8 +6,7 @@ import torchvision
 from numpy.random import randint
 
 import transforms as t
-
-from .video_record import VideoRecord
+from datasets.video_record import VideoRecord
 
 
 class VideoDataset(data.Dataset):
@@ -84,10 +83,10 @@ class VideoDataset(data.Dataset):
             expanded_sample_length, record.num_frames-1, self.test_clips, dtype=int)
         offsets = []
         for p in sample_start_pos:
-            offsets.extend(np.linspace(
-                max(p-expanded_sample_length, 0),
-                min(p, record.num_frames-1),
-                self.sample_frames, dtype=int))
+            offsets.extend(
+                np.linspace(max(p - expanded_sample_length, 0),
+                            min(p, record.num_frames - 1),
+                            self.sample_frames, dtype=int))
 
         return offsets
 
@@ -102,7 +101,10 @@ class VideoDataset(data.Dataset):
         try:
             record = VideoRecord(os.path.join(self.root_path, video_path), label)
 
-            if self.mode in ['train', 'val']:
+            if self.mode == 'stream':
+                return os.path.join(self.root_path, video_path), label
+
+            elif self.mode in ['train', 'val']:
                 segment_indices = self._get_train_indices(record)
                 target = self._get_train_target(record, segment_indices)
             else:
@@ -143,7 +145,7 @@ class VideoDataset(data.Dataset):
         Returns:
             A transform function to be applied in the PIL images.
         """
-        if self.mode == 'val':
+        if self.mode in ['val', 'stream']:
             cropping = torchvision.transforms.Compose([
                 t.GroupResize(256),
                 t.GroupCenterCrop(224)
@@ -160,14 +162,15 @@ class VideoDataset(data.Dataset):
                 t.GroupRandomHorizontalFlip()
             ])
         else:
-            raise ValueError('Mode {} does not exist. Choose between: val, test or train.'.format(
-                self.mode))
+            raise ValueError(
+                'Mode {} does not exist. Choose between: val, stream, test or train.'.format(
+                    self.mode))
 
         transforms = torchvision.transforms.Compose([
-                cropping,
-                t.GroupToTensorStack(),
-                t.GroupNormalize(mean=self.input_mean, std=self.input_std)
-            ])
+            cropping,
+            t.GroupToTensorStack(),
+            t.GroupNormalize(mean=self.input_mean, std=self.input_std)
+        ])
 
         return transforms
 

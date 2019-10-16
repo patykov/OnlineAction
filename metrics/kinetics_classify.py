@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.metrics import classification_report
 
-from metrics.metrics import get_accuracy
+from metrics.metrics import per_class_accuracy
 
 
 def get_top_predictions(video_pred, video_labels):
@@ -23,10 +23,10 @@ def get_top_predictions(video_pred, video_labels):
 def save(video_pred, video_labels, output_file, batch_time=None, data_time=None):
     top1_pred, top5_pred = get_top_predictions(video_pred, video_labels)
 
-    cls_acc1 = get_accuracy(top1_pred, video_labels)
+    cls_acc1 = per_class_accuracy(top1_pred, video_labels)
     report1 = classification_report(video_labels, top1_pred)
 
-    cls_acc5 = get_accuracy(top5_pred, video_labels)
+    cls_acc5 = per_class_accuracy(top5_pred, video_labels)
     report5 = classification_report(video_labels, top5_pred)
 
     print('\n\nAccuracy:\nTop1: {:.02f}% | Top5: {:.02f}%'.format(cls_acc1, cls_acc5))
@@ -55,8 +55,8 @@ def save_causal(video_pred, video_labels, output_file, batch_time=None, data_tim
         v_pred = [p[i] for p in video_pred]
         top1_pred, top5_pred = get_top_predictions(v_pred, video_labels)
 
-        acc1 = get_accuracy(top1_pred, video_labels)
-        acc5 = get_accuracy(top5_pred, video_labels)
+        acc1 = per_class_accuracy(top1_pred, video_labels)
+        acc5 = per_class_accuracy(top5_pred, video_labels)
         cls_acc1.append(acc1)
         cls_acc5.append(acc5)
 
