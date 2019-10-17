@@ -59,15 +59,18 @@ class VideoDataset(data.Dataset):
         """
         expanded_sample_length = int(self.clip_length * record.fps)
         if record.num_frames > expanded_sample_length:
-            start_pos = randint(record.num_frames - expanded_sample_length)
+            # end_pos = randint(expanded_sample_length, record.num_frames)
+            end_pos = expanded_sample_length
             offsets = np.linspace(
-                start_pos, start_pos + expanded_sample_length, self.sample_frames, dtype=int)
+                end_pos - expanded_sample_length, end_pos, self.sample_frames,
+                endpoint=True, dtype=int)
         elif record.num_frames > self.sample_frames:
-            start_pos = randint(record.num_frames - self.sample_frames)
+            end_pos = randint(self.sample_frames, record.num_frames)
             offsets = np.linspace(
-                start_pos, start_pos + self.sample_frames, self.sample_frames, dtype=int)
+                end_pos - self.sample_frames, end_pos, self.sample_frames, endpoint=True, dtype=int)
         else:
-            offsets = np.linspace(0, record.num_frames - 1, self.sample_frames, dtype=int)
+            offsets = np.linspace(
+                0, record.num_frames - 1, self.sample_frames, endpoint=True, dtype=int)
 
         return offsets
 
@@ -79,14 +82,14 @@ class VideoDataset(data.Dataset):
             offsets : List of image indices to be loaded from a video.
         """
         expanded_sample_length = int(self.clip_length * record.fps)
-        sample_start_pos = np.linspace(
-            expanded_sample_length, record.num_frames-1, self.test_clips, dtype=int)
+        sample_end_pos = np.linspace(
+            expanded_sample_length, record.num_frames, self.test_clips, dtype=int)
         offsets = []
-        for p in sample_start_pos:
+        for p in sample_end_pos:
             offsets.extend(
-                np.linspace(max(p - expanded_sample_length, 0),
-                            min(p, record.num_frames - 1),
-                            self.sample_frames, dtype=int))
+                np.linspace(
+                    max(p - expanded_sample_length, 0), min(p, record.num_frames),
+                    self.sample_frames, endpoint=True, dtype=int))
 
         return offsets
 

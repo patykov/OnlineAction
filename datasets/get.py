@@ -8,7 +8,7 @@ def get_dataloader(dataset_name, batch_size=1, num_workers=4, distributed=False,
     dataset = get_dataset(dataset_name, **kargs)
 
     if distributed:
-        sampler = get_distributed_sampler(dataset, distributed, **kargs)
+        sampler = get_distributed_sampler(dataset_name, distributed, **kargs)
         args = {'sampler': sampler}
     else:
         args = {'shuffle': True if kargs['mode'] == 'train' else False}
