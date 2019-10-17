@@ -68,7 +68,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     LOG.info('Loading model took {:.3f}s'.format(model_time - data_time))
     LOG.debug(model)
 
-    video_metric = m.Video_mAP(m.mAP()) if data_loader.dataset.multi_label else m.Video_Accuracy(
+    video_metric = m.VideoMAP(m.mAP()) if data_loader.dataset.multi_label else m.VideoAccuracy(
         m.TopK(k=(1, 5)))
     batch_time = m.AverageMeter('batch_time')
     data_time = m.AverageMeter('data_time')

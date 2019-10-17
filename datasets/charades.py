@@ -52,7 +52,7 @@ class Charades(VideoDataset):
                 if l['start'] < frame / float(record.fps) < l['end']:
                     target[int(l['class'][1:])] = 1
 
-        return {'target': target}
+        return {'target': target, 'video_path': os.path.splitext(os.path.basename(record.path))[0]}
 
     def _get_test_target(self, record):
         """

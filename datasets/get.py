@@ -30,8 +30,13 @@ def get_distributed_sampler(dataset_name, distributed=False, **kargs):
 
 
 def get_dataset(dataset_name, **kargs):
-    Dataset = getattr(
-        datasets, dataset_name.capitalize() if dataset_name[0].islower() else dataset_name)
+    """
+    Args:
+        dataset_name : String or tuple of strings to be concatenated.
+                       E.g.: ('charades', ), 'kinetics', ('charades', 'stream').
+    """
+    dataset_name = (dataset_name, ) if isinstance(dataset_name, str) else dataset_name
+    Dataset = getattr(datasets, ''.join(name.capitalize() for name in dataset_name))
     dataset = Dataset(**kargs)
 
     return dataset

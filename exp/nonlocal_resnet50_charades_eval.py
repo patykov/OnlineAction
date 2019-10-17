@@ -10,14 +10,14 @@ args = [
     '--map_file', '/data/Datasets/Charades/Annotations/Charades_v1_test.csv',
     '--root_data_path', '/data/Datasets/Charades/Charades_v1_480',
     '--pretrained_weights', '/data/OnlineActionRecognition/models/' +
-                            'pre-trained/long-term-feature-banks/' +
-                            'charades_r50_i3d_nl_32x2.pth',
-    '--log_file', 'eval_charades_r50_i3d_nl_32x2_ltfb_crop3',
+                            'charades_resnet50nl32_full_config1/' +
+                            'charades_resnet50nl32_full_config1_best_model.pth',
+    '--log_file', 'eval_charades_r50_i3d_nl_32x2_1video',
     '--sample_frames', '32',
     '--dataset', 'charades',
     '--backbone', 'resnet50',
     '--arch', 'nonlocal_net',
-    '--mode', 'test'
+    '--mode', 'val'
 
 ]
 sys.argv.extend(args)

@@ -1,7 +1,8 @@
 import argparse
 import os
+import re
 
-from video_record import VideoRecord
+from datasets.video_record import VideoRecord
 
 
 def create_labels_file(dir_path, output_dir):
@@ -28,14 +29,20 @@ def load_labels_file(file_path):
     Args:
         file_path: Full path to the 'classes.txt' file.
     Returns:
-        classes: Dict in the format: 'classes[class_name] = class_id'.
+        classes: Dict in the format: 'classes[class_id] = class_name'.
     """
     classes = {}
     with open(file_path, 'r') as file:
         lines = file.readlines()
+
     for l in lines:
-        li = l.replace('\n', '').split(' ')
-        classes[li[1]] = li[0]
+        class_match = re.match('c(\d*) (.*)', l)
+        if class_match:
+            class_id, class_name = class_match.groups()
+            classes[int(class_id)] = class_name
+        else:
+            raise ValueError('Could not match the line: \"{}\" from classes file!'.format(
+                             l.strip()))
     return classes
 
 
@@ -50,10 +57,9 @@ def create_video_list(dir_path, output_file_path, classes_file):
     """
     classes = load_labels_file(classes_file)
     files_text = ''
-    for c_name, c_id in classes.items():
+    for c_id, c_name in classes.items():
         class_path = os.path.join(dir_path, c_name)
         videos = sorted(os.listdir(class_path))
-        print(class_path)
         usable_videos = []
         for v in videos:
             try:

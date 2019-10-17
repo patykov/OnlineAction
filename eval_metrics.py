@@ -26,15 +26,11 @@ class Runnercommands():
     def kinetics_classify(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('--log_file', type=str)
+        parser.add_argument('--percentage', action='store_true')
         args = parser.parse_args(sys.argv[2:])
 
-        output_file = get_results_file_name(args.log_file)
-
-        labels, preditions, is_causal = kc.read_file(args.log_file)
-        if is_causal:
-            kc.save_causal(preditions, labels, output_file)
-        else:
-            kc.save(preditions, labels, output_file)
+        output_file = get_results_file_name(args.log_file, percentage=args.percentage)
+        kc.save(args.log_file, output_file, args.percentage)
 
     def charades_classify(self):
         parser = argparse.ArgumentParser()
@@ -48,10 +44,11 @@ class Runnercommands():
         cc.save(args.log_file, args.gt_file, output_file, args.per_frame, args.calibrated)
 
 
-def get_results_file_name(file_name, per_frame=False, calibrated=False):
+def get_results_file_name(file_name, percentage=False, per_frame=False, calibrated=False):
     base, file_name = os.path.split(file_name)
     name, _ = os.path.splitext(file_name)
-    output_file = os.path.join(base, name+'_{}{}results.txt'.format(
+    output_file = os.path.join(base, name+'_{}{}{}results.txt'.format(
+        'percentage_' if percentage else '',
         'perframe_' if per_frame else '', 'calibrated_' if calibrated else ''))
 
     return output_file

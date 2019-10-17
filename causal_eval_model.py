@@ -61,47 +61,46 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     LOG.info('Loading model took {:.3f}s'.format(model_time - data_time))
     LOG.debug(model)
 
-    video_metric = m.Video_cAP(
-        m.cAP(num_classes)) if data_sampler.dataset.multi_label else m.Video_Accuracy(
-            m.TopK(k=(1, 5)))
+    video_metric = m.VideoPerFrameMAP(
+        m.mAP()) if data_sampler.dataset.multi_label else m.VideoPerFrameAccuracy(m.TopK(k=(1, 5)))
     batch_time = m.AverageMeter('batch_time')
     data_time = m.AverageMeter('data_time')
     with torch.no_grad():
 
         end = time.time()
-        for i, vid in enumerate(data_sampler, start=1):
-            video_path, label = video_dataset[vid]
+        count = 0
+        offset = 0
+        total = data_sampler.total_size
+        with tqdm(desc='Video {}/{} (of {} total)'.format(count, total_per_gpu, total),
+                  total=total_per_gpu, leave=True, maxinterval=3600) as t:
 
-            # measure data loading time
-            data_time.update(time.time() - end)
+            for i, vid in enumerate(data_sampler, start=1):
+                video_path, label = video_dataset[vid]
+                # measure data loading time
+                data_time.update(time.time() - end)
 
-            video_stream = get_dataloader('VideoStream', video_path=video_path, label=label,
-                                          batch_size=1, num_classes=num_classes, mode=mode,
-                                          distributed=False, num_workers=0)
-            count = 0
-            offset = 0
-            total = video_stream.dataset.total
-            with tqdm(
-                desc='Video {}/{} ({:.02%})'.format(i, total_per_gpu, i/total_per_gpu),
-                total=total, leave=True, maxinterval=3600
-            ) as t:
+                video_stream = get_dataloader(
+                    (dataset, 'stream'), video_path=video_path, label=label, batch_size=1,
+                    num_classes=num_classes, mode=mode, distributed=False, num_workers=0)
+
                 for j, (chunk_data, chunk_target) in enumerate(video_stream):
-                    output = model(chunk_data.squeeze(0).cuda()).cpu()
+                    chunk_data = chunk_data.squeeze(0).cuda()
+                    output = model(chunk_data).cpu()
+
                     video_metric.add(
                         avg_output(output) if mode == 'test' else output,
                         {
-                            'target': chunk_target.squeeze(0),
-                            'video_path': video_stream.dataset.target['video_path'],
-                            'last_frame': count + video_stream.dataset.first_frame
+                            'target': chunk_target['target'].squeeze(0),
+                            'video_path': chunk_target['video_path']
                         },
                         synchronize=(
                             i == data_sampler.num_samples) and (
                             j == len(video_stream) - 1))
-                    count += chunk_target.shape[1]
 
-                    if (count - offset) >= total // 3:  # Update progressbar every 33%
-                        t.update(count - offset)
-                        offset = count
+                count += 1
+                if (count - offset) >= total // 20:  # Update progressbar every 5%
+                    t.update(count - offset)
+                    offset = count
 
             # measure elapsed time
             batch_time.update(time.time() - end)

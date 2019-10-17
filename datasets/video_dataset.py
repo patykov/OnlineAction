@@ -59,8 +59,7 @@ class VideoDataset(data.Dataset):
         """
         expanded_sample_length = int(self.clip_length * record.fps)
         if record.num_frames > expanded_sample_length:
-            # end_pos = randint(expanded_sample_length, record.num_frames)
-            end_pos = expanded_sample_length
+            end_pos = randint(expanded_sample_length, record.num_frames)
             offsets = np.linspace(
                 end_pos - expanded_sample_length, end_pos, self.sample_frames,
                 endpoint=True, dtype=int)
@@ -87,9 +86,10 @@ class VideoDataset(data.Dataset):
         offsets = []
         for p in sample_end_pos:
             offsets.extend(
-                np.linspace(
-                    max(p - expanded_sample_length, 0), min(p, record.num_frames),
-                    self.sample_frames, endpoint=True, dtype=int))
+                np.linspace(max(p - expanded_sample_length, 0),
+                            min(p, record.num_frames - 1),
+                            self.sample_frames,
+                            endpoint=True, dtype=int))
 
         return offsets
 

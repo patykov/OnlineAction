@@ -1,10 +1,10 @@
 import csv
 import os
-import time
 
 import numpy as np
+from tqdm import tqdm
 
-from datasets.video_stream import VideoStream
+from datasets.charades_stream import CharadesStream
 
 
 def charades_v1_classify(cls_file, gt_path, per_frame=False, calibrated=False):
@@ -22,19 +22,16 @@ def charades_v1_classify(cls_file, gt_path, per_frame=False, calibrated=False):
             map: MAP
 
     """
-    t1 = time.time()
     gt_ids, gt_classes = read_file(gt_path) if per_frame else load_charades(gt_path)
     w_array = get_w_array(gt_classes) if calibrated else None
     n_test = len(gt_ids)
 
-    t2 = time.time()
-    print('Load GT file in {}'.format(t2-t1))
-
     # Load test scores
     test_ids, test_scores = read_file(cls_file)
 
-    t3 = time.time()
-    print('Load test scores file in {}'.format(t3-t2))
+    # Check if there are duplicate items (caused by the parallel execution)
+    test_ids, test_index_order = np.unique(test_ids, return_index=True)
+    test_scores = np.array(test_scores)[test_index_order]
 
     n = len(test_scores)
     if n < n_test:
@@ -46,49 +43,44 @@ def charades_v1_classify(cls_file, gt_path, per_frame=False, calibrated=False):
                 subset_gt_classes.append(gt_classes[gt_i])
         gt_classes = subset_gt_classes
     elif n_test < n:
-        # Check if its duplicate items
-        test_ids, test_index_order = np.unique(test_ids, return_index=True)
-        test_scores = np.array(test_scores)[test_index_order]
-        n = len(test_scores)
-        if n_test < n:
-            raise RuntimeError('There are {} extra items!'.format(n-n_test))
+        raise RuntimeError('There are {} extra items!'.format(n-n_test))
 
-    t4 = time.time()
-    print('Adjust files in {}'.format(t4-t3))
-
-    mAP, wAP, ap = charades_map(np.array(test_scores), np.array(gt_classes), w_array)
-    print('MAP: {:.02%}\n'.format(mAP))
-
-    t5 = time.time()
-    print('mAP in {}'.format(t5-t4))
+    mAP, wAP, ap, _, _ = charades_map(np.array(test_scores), np.array(gt_classes), w_array)
 
     return mAP, wAP, ap
 
 
 def map_func(submission_array, gt_array, w_array):
-    """ Returns mAP, weighted mAP, and AP array """
+    """ Returns mAP, weighted mAP, AP array, precisions and recall"""
     m_aps = []
+    a_prec = np.zeros(submission_array.shape)
+    a_recall = np.zeros(submission_array.shape)
     n_classes = submission_array.shape[1]
     for oc_i in range(n_classes):
         sorted_idxs = np.argsort(-submission_array[:, oc_i])
-        tp = gt_array[:, oc_i][sorted_idxs] == 1
+        sorted_gt = gt_array[:, oc_i][sorted_idxs]
+        tp = sorted_gt == 1
         fp = np.invert(tp)
         n_pos = tp.sum()
+        n_gt = sorted_gt.sum()
 
         t_pcs = np.cumsum(tp)
         f_pcs = np.cumsum(fp)
 
         w_t_pcs = t_pcs * w_array[oc_i]
         prec = w_t_pcs / (f_pcs + w_t_pcs).astype(float)
+        recall = t_pcs / n_gt.astype(float)
         avg_prec = 0
         for i in range(submission_array.shape[0]):
             if tp[i]:
                 avg_prec += prec[i]
         m_aps.append(avg_prec / n_pos.astype(float))
+        a_prec[:, oc_i] = prec
+        a_recall[:, oc_i] = recall
     m_aps = np.array(m_aps)
     m_ap = np.nanmean(m_aps)
     w_ap = np.nansum(m_aps * gt_array.sum(axis=0) / gt_array.sum().astype(float))
-    return m_ap, w_ap, m_aps
+    return m_ap, w_ap, m_aps, a_prec, a_recall
 
 
 def charades_map(submission_array, gt_array, w_array=None):
@@ -106,9 +98,20 @@ def charades_map(submission_array, gt_array, w_array=None):
     return map_func(fix, gt_array, w_array)
 
 
+def get_thresholds(test_scores, gt_classes):
+    _, _, ap, prec = charades_map(test_scores, gt_classes)
+
+    n_classes = test_scores.shape[1]
+    thresholds = np.zeros(n_classes)
+    for c in range(n_classes):
+        idx = np.where(prec[:, c] > ap[c])[0][-1]
+        thresholds[c] = test_scores[idx, c]
+    return thresholds
+
+
 def read_file(file_path):
     with open(file_path, 'r') as file:
-        text = file.readlines()
+        text = sorted(file.readlines())
 
     split_text = [t.replace('\n', '').split(' ') for t in text if t != '\n']
     split_text = [[t for t in st if t != ''] for st in split_text]
@@ -136,12 +139,18 @@ def load_charades(gt_path):
     return gt_ids, gt_classes
 
 
-def load_causal_charades(gt_path, data_path):
+def load_causal_charades(gt_path, data_path, clip_length):
     gt_ids = []
     gt_classes = []
     with open(gt_path) as f:
-        reader = csv.DictReader(f)
-        for ir, row in enumerate(reader):
+        reader = list(csv.DictReader(f))
+
+    count = 0
+    offset = 0
+    total = len(reader)
+    for ir, row in enumerate(reader):
+        with tqdm(desc='Video {}/{} ({:.02%})'.format(ir, total, ir/total), total=total,
+                  leave=False, maxinterval=3600) as t:
             vid = row['id']
             actions = row['actions']
             if actions == '':
@@ -153,12 +162,17 @@ def load_causal_charades(gt_path, data_path):
                     'start': float(y),
                     'end': float(z)
                 } for x, y, z in actions]
-            video_stream = VideoStream(os.path.join(data_path, vid+'.mp4'), actions)
+            video_stream = CharadesStream(os.path.join(data_path, vid+'.mp4'), actions,
+                                          clip_length=clip_length)
             first_frame = video_stream.first_frame
             frame_target = video_stream.target['target']
             for f_id, frame_t in enumerate(frame_target):
                 gt_ids.append('{}_{:06d}'.format(vid, first_frame + f_id))
                 gt_classes.append(frame_t.numpy())
+
+            if (count - offset) >= total // 20:  # Update progressbar every 5%
+                t.update(count - offset)
+                offset = count
 
     return gt_ids, gt_classes
 

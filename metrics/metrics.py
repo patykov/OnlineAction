@@ -63,12 +63,16 @@ class TopK(Metric):
         self.k = k
         self.maxk = max(k)
 
-    def _add(self, output, target):
+    def _add(self, output, target, synchronize=True):
         _, topk_pred = torch.topk(output, self.maxk)
 
-        self.targets.append(
-            hvd.allgather(torch.stack([target.cpu()], dim=1), name=self.name + '_target'))
-        self.predictions.append(hvd.allgather(topk_pred.cpu(), name=self.name + '_pred'))
+        if synchronize:
+            self.targets.append(
+                hvd.allgather(torch.stack([target.cpu()], dim=1), name=self.name + '_target'))
+            self.predictions.append(hvd.allgather(topk_pred.cpu(), name=self.name + '_pred'))
+        else:
+            self.targets.append(torch.stack([target.cpu()], dim=1))
+            self.predictions.append(topk_pred.cpu())
 
     def _get_value(self):
         predictions = np.vstack(self.predictions)
@@ -87,11 +91,15 @@ class mAP(Metric):
     def __init__(self):
         super().__init__('mAP')
 
-    def _add(self, output, target):
+    def _add(self, output, target, synchronize=True):
         prediction = torch.sigmoid(output)
 
-        self.targets.append(hvd.allgather(target.cpu(), name=self.name + '_target'))
-        self.predictions.append(hvd.allgather(prediction.cpu(), name=self.name + '_pred'))
+        if synchronize:
+            self.targets.append(hvd.allgather(target.cpu(), name=self.name + '_target'))
+            self.predictions.append(hvd.allgather(prediction.cpu(), name=self.name + '_pred'))
+        else:
+            self.targets.append(target.cpu())
+            self.predictions.append(prediction.cpu())
 
     def _get_value(self):
         mAP, _, _ = charades_map(np.vstack(self.predictions), np.vstack(self.targets))
@@ -101,41 +109,7 @@ class mAP(Metric):
         return '{:.02%}'.format(self.value)
 
 
-class cAP(Metric):
-    def __init__(self, num_classes):
-        self.num_classes = num_classes
-        super().__init__('cAP')
-
-    def reset(self):
-        super().reset()
-        self.pos_count = np.zeros(self.num_classes)
-        self.neg_count = np.zeros(self.num_classes)
-
-    def _add(self, output, target, synchronize=False):
-        prediction = torch.sigmoid(output)
-
-        targets = hvd.allgather(
-            target.cpu(), name=self.name + '_target') if synchronize else target.cpu()
-        self.targets.append(targets)
-        self.predictions.append(hvd.allgather(
-            prediction.cpu(), name=self.name + '_pred') if synchronize else prediction.cpu())
-
-        sum_targets = sum(targets).numpy()
-        self.pos_count += sum_targets
-        self.neg_count += (np.ones(self.num_classes)*len(targets) - sum_targets)
-
-    def _get_value(self):
-        mAP, _, _ = charades_map(
-            np.vstack(self.predictions),
-            np.vstack(self.targets),
-            self.neg_count/self.pos_count)
-        return mAP
-
-    def __repr__(self):
-        return '{:.02%}'.format(self.value)
-
-
-class Video_Wrapper:
+class VideoWrapper:
     """ Metric wrapper that stores model predictions at video level evaluation in a text
     format."""
     def __init__(self, metric):
@@ -157,31 +131,45 @@ class Video_Wrapper:
         return str(self.metric)
 
     def to_text(self):
-        partial_results = self.text[:-2]  # Removing last '\n'
+        partial_results = self.text.strip()  # Removing last '\n'
         self.text = ''
         return partial_results
 
 
-class Video_cAP(Video_Wrapper):
+class VideoPerFrameAccuracy(VideoWrapper):
+    def reset(self):
+        self.text = '{:^40} | {:^5} | {}\n'.format(
+            'Path', 'Label', 'Top5 predition')
+        self.metric.reset()
+
     def update_text(self, target):
         batch_size = target['target'].shape[0]
         for img_id in range(batch_size):
-            video_frame = '{}_{:06d}'.format(
-                target['video_path'], target['last_frame'] + img_id)
+            pred = self.metric.predictions[-1][img_id].numpy()
+            assert pred.shape == (5,)  # REMOVE LATER
+            self.text += '{:40} | {:^5} | {}\n'.format(
+                target['video_path'][img_id][0],
+                target['target'][img_id].item(),
+                np.array2string(pred, separator=' ')[1:-1])
 
-            self.text += '{} {}\n'.format(video_frame, np.array2string(
+
+class VideoPerFrameMAP(VideoWrapper):
+    def update_text(self, target):
+        batch_size = target['target'].shape[0]
+        for img_id in range(batch_size):
+            self.text += '{} {}\n'.format(target['video_path'][img_id][0], np.array2string(
                 self.metric.predictions[-1][img_id].numpy(), separator=' ',
                 formatter={'float_kind': lambda x: '%.8f' % x})[1:-1].replace('\n', ''))
 
 
-class Video_mAP(Video_Wrapper):
+class VideoMAP(VideoWrapper):
     def update_text(self, target):
         self.text += '{} {}\n'.format(target['video_path'][0], np.array2string(
             self.metric.predictions[-1].numpy(), separator=' ',
             formatter={'float_kind': lambda x: '%.8f' % x})[1:-1].replace('\n', ''))
 
 
-class Video_Accuracy(Video_Wrapper):
+class VideoAccuracy(VideoWrapper):
     def reset(self):
         self.text = '{:^5} | {:^20}\n'.format('Label', 'Top5 predition')
         self.metric.reset()
