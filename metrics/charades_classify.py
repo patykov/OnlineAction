@@ -99,7 +99,7 @@ def charades_map(submission_array, gt_array, w_array=None):
 
 
 def get_thresholds(test_scores, gt_classes):
-    _, _, ap, prec = charades_map(test_scores, gt_classes)
+    _, _, ap, prec, _ = charades_map(test_scores, gt_classes)
 
     n_classes = test_scores.shape[1]
     thresholds = np.zeros(n_classes)

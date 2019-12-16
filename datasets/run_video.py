@@ -2,6 +2,7 @@ import os
 
 import numpy as np
 import torch
+from torch.nn import MaxPool1d
 
 import metrics.charades_classify as cc
 from datasets.get import get_dataloader, get_dataset
@@ -25,6 +26,55 @@ def divide_per_video(ids, targets):
         videos[video_name]['targets'].append(targets[i])
 
     return videos
+
+
+def divide_per_clip(ids, classes):
+    clips_ids = []
+    clips_classes = []
+
+    video_name = None
+    for i, video_frame in enumerate(ids):
+        name = video_frame.split('_')[0]
+        if name != video_name:
+            # new video! But first, save old video
+            if i > 0:
+                clips_ids.append(np.array(video_ids))
+                clips_classes.append(np.array(video_classes))
+            # star new one
+            video_ids = []
+            video_classes = []
+            video_name = name
+
+        video_ids.append(video_frame)
+        video_classes.append(classes[i])
+
+    # Append last video
+    clips_ids.append(np.array(video_ids))
+    clips_classes.append(np.array(video_classes))
+
+    return np.array(clips_ids), np.array(clips_classes)
+
+
+def video_output(outputs):
+    num_clips, num_classes = outputs.shape
+    max_pool = MaxPool1d(num_clips)
+
+    outputs = torch.tensor(outputs)
+
+    data = outputs.view(1, -1, num_classes).contiguous()
+    data = data.permute(0, 2, 1).contiguous()
+
+    data = max_pool(data)
+    video_data = data.view(num_classes).contiguous()
+
+    return video_data
+
+
+def select_n_clips(video_classes, n=10):
+    num_frames = len(video_classes)
+    ids = np.linspace(0, num_frames-1, n, dtype=int)
+
+    return video_classes[ids]
 
 
 def main(dataset, map_file, root_data_path, subset, sample_frames, gt_path, results_file,
@@ -76,8 +126,17 @@ def main(dataset, map_file, root_data_path, subset, sample_frames, gt_path, resu
     # Get videos clips
     videos = divide_per_video(test_ids, test_scores)
 
+    # Dividing per clip
+    _, gt_clips_classes = divide_per_clip(gt_ids, gt_classes)
+    _, test_clips_classes = divide_per_clip(test_ids, test_scores)
+
     # Get classes thresholds
-    thresholds = cc.get_thresholds(test_scores, gt_classes)
+    test_classes_n = [select_n_clips(np.array(clip_data), n=10) for clip_data in test_clips_classes]
+
+    test_clip_n_mean = np.array([video_output(t_c).numpy() for t_c in test_classes_n])
+    gt_clips_n_mean = np.array([(sum(gt_c) > 0).astype(int) for gt_c in gt_clips_classes])
+
+    thresholds = cc.get_thresholds(test_clip_n_mean, gt_clips_n_mean)
 
     return get_video, videos, thresholds, {
         'mean': video_dataset.input_mean,
