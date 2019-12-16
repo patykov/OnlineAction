@@ -17,7 +17,7 @@ torch.backends.cudnn.benchmarks = True
 
 
 def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline, mode, subset,
-         dataset, sample_frames, workers):
+         dataset, sample_frames, workers, selected_classes_file=None, verb_classes_file=None):
     start_time = time.time()
 
     LOG = logging.getLogger(name='eval')
@@ -26,7 +26,9 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     # Loading data
     data_sampler = get_distributed_sampler(dataset, list_file=map_file, root_path=root_data_path,
                                            subset=subset, mode='stream',
-                                           sample_frames=sample_frames)
+                                           sample_frames=sample_frames,
+                                           selected_classes_file=selected_classes_file,
+                                           verb_classes_file=verb_classes_file)
     video_dataset = data_sampler.dataset
     total_per_gpu = data_sampler.num_samples
     num_classes = video_dataset.num_classes
@@ -141,6 +143,14 @@ def main():
     parser.add_argument('--subset', action='store_true')
     parser.add_argument('--workers', default=4, type=int,
                         help='Number of workers on the data loading subprocess.')
+    parser.add_argument('--selected_classes_file',
+                        type=str,
+                        default=None,
+                        help='Full path to the file with the classes to be used in training')
+    parser.add_argument('--verb_classes_file',
+                        type=str,
+                        default=None,
+                        help='Full path to the file with the classes to verbs mapping')
 
     args = parser.parse_args()
     assert args.dataset in ['kinetics', 'charades'], (
@@ -163,7 +173,7 @@ def main():
 
     eval(args.map_file, args.root_data_path, args.pretrained_weights, args.arch,
          args.backbone, args.baseline, args.mode, args.subset, args.dataset,
-         args.sample_frames, args.workers)
+         args.sample_frames, args.workers, args.selected_classes_file, args.verb_classes_file)
 
 
 if __name__ == '__main__':

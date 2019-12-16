@@ -1,6 +1,8 @@
 import csv
 import os
+import re
 
+import numpy as np
 import torch
 
 from .video_dataset import VideoDataset, VideoRecord
@@ -27,7 +29,7 @@ class Charades(VideoDataset):
                 else:
                     actions = [a.split(' ') for a in actions.split(';')]
                     actions = [{
-                        'class': x,
+                        'class': int(x[1:]),
                         'start': float(y),
                         'end': float(z)
                     } for x, y, z in actions]
@@ -37,6 +39,58 @@ class Charades(VideoDataset):
             video_list = [v for i, v in enumerate(video_list) if i % 10 == 0]
 
         self.video_list = video_list
+
+    def select_classes_over_thres(self, file_path):
+        if file_path:
+            selected_classes = {}
+            with open(file_path, 'r') as file:
+                for line in file:
+                    class_match = re.match('(\d*) (.*) (\d*)', line)
+                    if class_match:
+                        new_class_id, old_class_id, class_name = class_match.groups()
+                    selected_classes[int(old_class_id)] = int(new_class_id)
+
+            # Set new num_classes
+            self.num_classes = len(selected_classes)
+
+            # Select classes from gt
+            new_video_list = []
+            for actions, vid in self.video_list:
+                new_actions = []
+                for a in actions:
+                    if a['class'] in selected_classes:
+                        old_value = a['class']
+                        a['class'] = selected_classes[old_value]
+                        new_actions.append(a)
+                new_video_list.append([new_actions, vid])
+
+            self.video_list = new_video_list
+
+    def select_classes_by_verb(self, file_path):
+        if file_path:
+            class_to_verb = {}
+            with open(file_path, 'r') as file:
+                for line in file:
+                    class_match = re.match('(\d*) (.*) (\d*)', line)
+                    if class_match:
+                        old_class_id, new_class_id, new_class_name = class_match.groups()
+                    class_to_verb[int(old_class_id)] = int(new_class_id)
+
+            # Set new num_classes
+            self.num_classes = len(np.unique(list(class_to_verb.values())))
+
+            # Select classes from gt
+            new_video_list = []
+            for actions, vid in self.video_list:
+                new_actions = []
+                for a in actions:
+                    if a['class'] in class_to_verb:
+                        old_value = a['class']
+                        a['class'] = class_to_verb[old_value]
+                        new_actions.append(a)
+                new_video_list.append([new_actions, vid])
+
+            self.video_list = new_video_list
 
     def _get_train_target(self, record, offsets):
         """
@@ -50,7 +104,7 @@ class Charades(VideoDataset):
         for frame in offsets:
             for l in record.label:
                 if l['start'] < frame / float(record.fps) < l['end']:
-                    target[int(l['class'][1:])] = 1
+                    target[l['class']] = 1
 
         return {'target': target, 'video_path': os.path.splitext(os.path.basename(record.path))[0]}
 
@@ -63,7 +117,7 @@ class Charades(VideoDataset):
         """
         target = torch.IntTensor(self.num_classes).zero_()
         for l in record.label:
-            target[int(l['class'][1:])] = 1
+            target[l['class']] = 1
 
         return {'target': target, 'video_path': os.path.splitext(os.path.basename(record.path))[0]}
 

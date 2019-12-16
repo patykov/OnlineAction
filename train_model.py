@@ -97,7 +97,8 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
 
 def train(config_json, train_file, val_file, train_data, val_data, sample_frames, dataset,
           checkpoint_path, restart=False, num_workers=4, arch='nonlocal_net', backbone='resnet50',
-          pretrained_weights=None, fine_tune=True, pos_weight_file=False, subset=False):
+          pretrained_weights=None, fine_tune=True, pos_weight_file=False, subset=False,
+          selected_classes_file=None, verb_classes_file=None):
 
     config = utils.parse_json(config_json)
 
@@ -110,11 +111,13 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
     train_loader = get_dataloader(dataset, list_file=train_file, root_path=train_data,
                                   mode='train', sample_frames=sample_frames, subset=subset,
                                   batch_size=config['batch_size'], num_workers=num_workers,
-                                  distributed=True)
+                                  distributed=True, selected_classes_file=selected_classes_file,
+                                  verb_classes_file=verb_classes_file)
     val_loader = get_dataloader(dataset, list_file=val_file, root_path=val_data,
                                 mode='val', sample_frames=sample_frames, subset=subset,
                                 batch_size=config['batch_size'], num_workers=num_workers,
-                                distributed=True)
+                                distributed=True, selected_classes_file=selected_classes_file,
+                                verb_classes_file=verb_classes_file)
 
     num_classes = train_loader.dataset.num_classes
     multi_label = train_loader.dataset.multi_label
@@ -285,6 +288,14 @@ def main():
                         type=int,
                         help='Number of workers on the data loading subprocess',
                         default=4)
+    parser.add_argument('--selected_classes_file',
+                        type=str,
+                        default=None,
+                        help='Full path to the file with the classes to be used in training')
+    parser.add_argument('--verb_classes_file',
+                        type=str,
+                        default=None,
+                        help='Full path to the file with the classes to verbs mapping')
 
     args = parser.parse_args()
 
@@ -313,7 +324,7 @@ def main():
     train(args.config_file, args.train_map_file, args.val_map_file, args.train_data_path,
           val_data_path, args.sample_frames, args.dataset, checkpoint_path, args.restart,
           args.workers, args.arch, args.backbone, args.pretrained_weights, args.fine_tune,
-          args.pos_weights, args.subset)
+          args.pos_weights, args.subset, args.selected_classes_file, args.verb_classes_file)
 
 
 if __name__ == '__main__':

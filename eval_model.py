@@ -16,7 +16,7 @@ torch.backends.cudnn.benchmarks = True
 
 
 def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline, mode,
-         dataset, sample_frames, workers):
+         dataset, sample_frames, workers, selected_classes_file=None, verb_classes_file=None):
     start_time = time.time()
 
     LOG = logging.getLogger(name='eval')
@@ -25,7 +25,8 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     # Loading data
     data_loader = get_dataloader(dataset, list_file=map_file, root_path=root_data_path, mode=mode,
                                  sample_frames=sample_frames, batch_size=1, num_workers=workers,
-                                 distributed=True)
+                                 distributed=True, selected_classes_file=selected_classes_file,
+                                 verb_classes_file=verb_classes_file)
 
     total_num = len(data_loader.dataset)
     num_classes = data_loader.dataset.num_classes
@@ -121,6 +122,14 @@ def main():
                         help='Number of frames to be sampled in the input.')
     parser.add_argument('--workers', default=4, type=int,
                         help='Number of workers on the data loading subprocess.')
+    parser.add_argument('--selected_classes_file',
+                        type=str,
+                        default=None,
+                        help='Full path to the file with the classes to be used in training')
+    parser.add_argument('--verb_classes_file',
+                        type=str,
+                        default=None,
+                        help='Full path to the file with the classes to verbs mapping')
 
     args = parser.parse_args()
     assert args.mode in ['test', 'val'], (
@@ -147,7 +156,8 @@ def main():
         setup_logger('results', results_file)
 
     eval(args.map_file, args.root_data_path, args.pretrained_weights, args.arch, args.backbone,
-         args.baseline, args.mode, args.dataset, args.sample_frames, args.workers)
+         args.baseline, args.mode, args.dataset, args.sample_frames, args.workers,
+         args.selected_classes_file, args.verb_classes_file)
 
 
 if __name__ == '__main__':

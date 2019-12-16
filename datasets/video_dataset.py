@@ -26,7 +26,8 @@ class VideoDataset(data.Dataset):
     multi_label = None
 
     def __init__(self, root_path, list_file, sample_frames=32, transform=None,
-                 mode='train', test_clips=10, subset=False):
+                 mode='train', test_clips=10, subset=False, selected_classes_file=None,
+                 verb_classes_file=None):
         self.root_path = root_path
         self.list_file = list_file
         self.sample_frames = sample_frames
@@ -41,6 +42,11 @@ class VideoDataset(data.Dataset):
             self.transform = self.default_transforms()
 
         self._parse_list()
+
+        if selected_classes_file:
+            self.select_classes_over_thres(selected_classes_file)
+        if verb_classes_file:
+            self.select_classes_by_verb(verb_classes_file)
 
     def _parse_list(self):
         """

@@ -31,11 +31,11 @@ class CharadesStream(VideoStream):
                 for frame in clip_offsets:
                     for l in record.label:
                         if l['start'] < frame / float(record.fps) < l['end']:
-                            target[i_clip, int(l['class'][1:])] = 1
+                            target[i_clip, l['class']] = 1
 
             else:
                 for l in record.label:
                     if l['start'] < last_frame / float(record.fps) < l['end']:
-                        target[i_clip, int(l['class'][1:])] = 1
+                        target[i_clip, l['class']] = 1
 
         return {'target': target, 'video_path': clip_paths}
