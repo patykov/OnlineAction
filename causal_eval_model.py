@@ -9,7 +9,7 @@ from torch.nn import AvgPool1d
 from tqdm import tqdm
 
 import metrics.metrics as m
-from datasets.get import get_dataloader, get_distributed_sampler
+from datasets.get import get_dataloader, get_distributed_sampler, get_dataset
 from models.get import get_model
 from utils import setup_logger
 
@@ -17,17 +17,17 @@ torch.backends.cudnn.benchmarks = True
 
 
 def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline, mode, subset,
-         dataset, sample_frames, workers):
+         dataset_name, sample_frames, workers):
     start_time = time.time()
 
     LOG = logging.getLogger(name='eval')
     RESULTS = logging.getLogger(name='results')
 
     # Loading data
-    data_sampler = get_distributed_sampler(dataset, list_file=map_file, root_path=root_data_path,
-                                           subset=subset, mode='stream',
-                                           sample_frames=sample_frames)
-    video_dataset = data_sampler.dataset
+    video_dataset = get_dataset(dataset_name, list_file=map_file, root_path=root_data_path,
+                                subset=subset, mode='stream', sample_frames=sample_frames)
+    data_sampler = get_distributed_sampler(dataset_name)
+
     total_per_gpu = data_sampler.num_samples
     num_classes = video_dataset.num_classes
     data_time = time.time()
@@ -62,7 +62,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     LOG.debug(model)
 
     video_metric = m.VideoPerFrameMAP(
-        m.mAP()) if data_sampler.dataset.multi_label else m.VideoPerFrameAccuracy(m.TopK(k=(1, 5)))
+        m.mAP()) if video_dataset.multi_label else m.VideoPerFrameAccuracy(m.TopK(k=(1, 5)))
     batch_time = m.AverageMeter('batch_time')
     data_time = m.AverageMeter('data_time')
     with torch.no_grad():
@@ -79,9 +79,11 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
                 # measure data loading time
                 data_time.update(time.time() - end)
 
+                stream_dataset = get_dataset(
+                    (dataset_name, 'stream'), video_path=video_path, label=label,
+                    num_classes=num_classes, mode=mode)
                 video_stream = get_dataloader(
-                    (dataset, 'stream'), video_path=video_path, label=label, batch_size=1,
-                    num_classes=num_classes, mode=mode, distributed=False, num_workers=0)
+                    stream_dataset, batch_size=1, distributed=False, num_workers=0)
 
                 for j, (chunk_data, chunk_target) in enumerate(video_stream):
                     chunk_data = chunk_data.squeeze(0).cuda()
@@ -135,7 +137,9 @@ def main():
     parser.add_argument('--backbone', type=str, default='resnet50')
     parser.add_argument('--baseline', action='store_false')
     parser.add_argument('--mode', type=str, default='val')
-    parser.add_argument('--dataset', type=str, default='kinetics')
+    parser.add_argument('--dataset', type=str, default='kinetics',
+                        choices=['kinetics', 'charades'],
+                        help='Choose between "kinetics" or "charades" (default: %(default))')
     parser.add_argument('--sample_frames', type=int, default=8,
                         help='Number of frames to be sampled in the input.')
     parser.add_argument('--subset', action='store_true')
@@ -143,8 +147,6 @@ def main():
                         help='Number of workers on the data loading subprocess.')
 
     args = parser.parse_args()
-    assert args.dataset in ['kinetics', 'charades'], (
-        'Dataset {} not available. Choose between "kinetics" or "charades".'.format(args.dataset))
 
     torch.multiprocessing.set_sharing_strategy('file_system')
 

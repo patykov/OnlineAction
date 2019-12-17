@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 import metrics.metrics as m
 import utils
-from datasets.get import get_dataloader
+from datasets.get import get_dataloader, get_dataset
 from models.get import get_model
 from optim.get import get_optimizer
 
@@ -95,7 +95,7 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
     return running_loss
 
 
-def train(config_json, train_file, val_file, train_data, val_data, sample_frames, dataset,
+def train(config_json, train_file, val_file, train_data, val_data, sample_frames, dataset_name,
           checkpoint_path, restart=False, num_workers=4, arch='nonlocal_net', backbone='resnet50',
           pretrained_weights=None, fine_tune=True, pos_weight_file=False, subset=False):
 
@@ -106,18 +106,19 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
     best_model_path = chkpt_name + '_best_model' + chkpt_ext
     best_model_metric = 0.0
 
+    # Datasets
+    train_dataset = get_dataset(dataset_name, list_file=train_file, root_path=train_data,
+                                mode='train', sample_frames=sample_frames, subset=subset)
+    val_dataset = get_dataset(dataset_name, list_file=val_file, root_path=val_data,
+                              mode='val', sample_frames=sample_frames, subset=subset)
     # Data loaders
-    train_loader = get_dataloader(dataset, list_file=train_file, root_path=train_data,
-                                  mode='train', sample_frames=sample_frames, subset=subset,
-                                  batch_size=config['batch_size'], num_workers=num_workers,
-                                  distributed=True)
-    val_loader = get_dataloader(dataset, list_file=val_file, root_path=val_data,
-                                mode='val', sample_frames=sample_frames, subset=subset,
-                                batch_size=config['batch_size'], num_workers=num_workers,
-                                distributed=True)
+    train_loader = get_dataloader(train_dataset, batch_size=config['batch_size'],
+                                  num_workers=num_workers, distributed=True)
+    val_loader = get_dataloader(val_dataset, batch_size=config['batch_size'],
+                                num_workers=num_workers, distributed=True)
 
-    num_classes = train_loader.dataset.num_classes
-    multi_label = train_loader.dataset.multi_label
+    num_classes = train_dataset.num_classes
+    multi_label = train_dataset.multi_label
 
     # Metrics
     train_metric = m.mAP() if multi_label else m.TopK()
@@ -168,8 +169,8 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
         else:
             LOG.info('Learning rate configuration: {}'.format(config['learning_scheduler']))
             LOG.info('Weight decay: {:g}\n'.format(config['weight_decay']))
-            LOG.info(train_loader.dataset)
-            LOG.info(val_loader.dataset)
+            LOG.info(train_dataset)
+            LOG.info(val_dataset)
             if multi_label:
                 LOG.info('Criterion with{} balanced weights (pos_weight)'.format(
                     'out' if pos_weight is None else ''))
@@ -190,7 +191,7 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
     scheduler.broadcast_scheduler_state(root_rank=0)
 
     initial_epoch = max(scheduler.last_epoch, 0) if not scheduler.step_per_iter else int(
-        (scheduler.last_epoch * config['batch_size'] * hvd.size()) / len(train_loader.dataset))
+        (scheduler.last_epoch * config['batch_size'] * hvd.size()) / len(train_dataset))
 
     for epoch in range(initial_epoch, num_epochs):
         b = time.time()

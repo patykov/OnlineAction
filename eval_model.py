@@ -8,7 +8,7 @@ import torch.nn.parallel
 from torch.nn import AvgPool1d, MaxPool1d
 
 import metrics.metrics as m
-from datasets.get import get_dataloader
+from datasets.get import get_dataloader, get_dataset
 from models.get import get_model
 from utils import setup_logger
 
@@ -16,24 +16,26 @@ torch.backends.cudnn.benchmarks = True
 
 
 def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline, mode,
-         dataset, sample_frames, workers):
+         dataset_name, sample_frames, workers):
     start_time = time.time()
 
     LOG = logging.getLogger(name='eval')
     RESULTS = logging.getLogger(name='results')
 
     # Loading data
+    dataset = get_dataset(dataset_name, list_file=map_file, root_path=root_data_path, mode=mode,
+                          sample_frames=sample_frames)
     data_loader = get_dataloader(dataset, list_file=map_file, root_path=root_data_path, mode=mode,
                                  sample_frames=sample_frames, batch_size=1, num_workers=workers,
                                  distributed=True)
 
-    total_num = len(data_loader.dataset)
-    num_classes = data_loader.dataset.num_classes
+    total_num = len(dataset)
+    num_classes = dataset.num_classes
     data_gen = enumerate(data_loader, start=1)
 
     data_time = time.time()
     LOG.info('Loading dataset took {:.3f}s'.format(data_time - start_time))
-    LOG.debug(data_loader.dataset)
+    LOG.debug(dataset)
 
     # Loading model
     model = get_model(arch=arch, backbone=backbone, pretrained_weights=pretrained_weights,
@@ -42,9 +44,9 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     model.eval()
     model_time = time.time()
 
-    if data_loader.dataset.multi_label:
+    if dataset.multi_label:
         def video_output(outputs):
-            max_pool = MaxPool1d(data_loader.dataset.test_clips)
+            max_pool = MaxPool1d(dataset.test_clips)
             avg_pool = AvgPool1d(3)
 
             data = outputs.view(1, -1, num_classes).contiguous()

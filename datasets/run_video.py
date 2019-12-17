@@ -39,9 +39,11 @@ def main(dataset, map_file, root_data_path, subset, sample_frames, gt_path, resu
             vid = np.random.randint(0, num_classes)
         video_path, label = video_dataset[vid]
 
+        stream_dataset = get_dataset(
+            (dataset, 'stream'), video_path=video_path, label=label,
+            num_classes=num_classes, mode=mode)
         video_stream = get_dataloader(
-            (dataset, 'stream'), video_path=video_path, label=label, batch_size=1,
-            num_classes=num_classes, mode=mode, distributed=False, num_workers=0)
+            stream_dataset, batch_size=1, distributed=False, num_workers=0)
 
         video_data = []
         video_target = []
@@ -50,7 +52,7 @@ def main(dataset, map_file, root_data_path, subset, sample_frames, gt_path, resu
             video_target.append(chunk_target)
 
         video_name = os.path.splitext(os.path.basename(video_path))[0]
-        video_fps = video_stream.dataset.record.fps
+        video_fps = stream_dataset.record.fps
 
         all_data = torch.from_numpy(np.hstack(video_data).squeeze(0))
         all_target = np.hstack([t['target'] for t in video_target]).squeeze(0)
