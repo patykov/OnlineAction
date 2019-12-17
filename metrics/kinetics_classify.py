@@ -117,7 +117,7 @@ def divide_per_clip(split_text):
                 clips_labels.append(video_labels)
                 clips_prediction.append(video_prediction)
 
-            # star new one
+            # start new one
             video_labels = []
             video_prediction = []
             video_name = video

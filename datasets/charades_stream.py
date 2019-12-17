@@ -11,13 +11,13 @@ class CharadesStream(VideoStream):
     def _get_test_target(self, record, offsets):
         """
         Args:
-            record : VideoRecord object
-            offsets : List of image indices to be loaded from a video.
+            record: VideoRecord object
+            offsets: List of image indices to be loaded from a video.
         Returns:
             target: Dict with the binary list of labels from a video and its relative path.
         """
         num_clips = int(len(offsets) / self.sample_frames)
-        target = torch.IntTensor(num_clips, self.num_classes).zero_()
+        target = torch.zeros((num_clips, self.num_classes), dtype=torch.int8)
         video_name = os.path.splitext(os.path.basename(record.path))[0]
         clip_paths = []
         for i_clip in range(num_clips):
