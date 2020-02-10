@@ -15,7 +15,7 @@ def get_dataloader(dataset_name, batch_size=1, num_workers=4, distributed=False,
 
     loader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, **args,
-        num_workers=num_workers, pin_memory=True)
+        num_workers=num_workers, pin_memory=False)
 
     return loader
 

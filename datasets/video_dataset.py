@@ -154,7 +154,11 @@ class VideoDataset(data.Dataset):
         Returns:
             A transform function to be applied in the PIL images.
         """
-        if self.mode in ['val', 'stream']:
+        if self.mode == 'stream':
+            # Stream mode does not apply transformation, returning only the video path and label
+            return None
+
+        elif self.mode == 'val':
             cropping = torchvision.transforms.Compose([
                 t.GroupResize(256),
                 t.GroupCenterCrop(224)

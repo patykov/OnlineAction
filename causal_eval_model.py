@@ -45,14 +45,13 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     model.eval()
     model_time = time.time()
 
-    def avg_output(outputs):
+    def pooling_output(outputs):
         avg_pool = AvgPool1d(3)
 
-        data = outputs.view(1, -1, num_classes).contiguous()
-        data = data.permute(0, 2, 1).contiguous()
+        data = outputs.view(1, num_classes, -1).contiguous()
+        # data = data.permute(0, 2, 1).contiguous()
 
-        # During test, fullyconv transform takes 3 random crops of each clip
-        data = avg_pool(data)
+        data = avg_pool(data)  # GroupFullyConv takes 3 random crops of each frame
         video_data = data.view(-1, num_classes).contiguous()
 
         return video_data
@@ -73,7 +72,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
         count = 0
         offset = 0
         total = data_sampler.total_size
-        with tqdm(desc='Video {}/{} (of {} total)'.format(count, total_per_gpu, total),
+        with tqdm(desc='{} videos of {} total'.format(total_per_gpu, total),
                   total=total_per_gpu, leave=True, maxinterval=3600) as t:
 
             for i, vid in enumerate(data_sampler, start=1):
@@ -82,39 +81,42 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
                 data_time.update(time.time() - end)
 
                 video_stream = get_dataloader(
-                    (dataset, 'stream'), video_path=video_path, label=label, batch_size=1,
+                    (dataset, 'stream'), video_path=video_path, label=label, batch_size=None,
                     num_classes=num_classes, mode=mode, distributed=False, num_workers=0)
-
                 for j, (chunk_data, chunk_target) in enumerate(video_stream):
-                    chunk_data = chunk_data.squeeze(0).cuda()
-                    output = model(chunk_data).cpu()
+                    chunk_data = chunk_data.to('cuda')
+                    output = model(chunk_data)  # .to('cpu')
 
                     video_metric.add(
-                        avg_output(output) if mode == 'test' else output,
+                        pooling_output(output) if mode == 'test' else output,
                         {
-                            'target': chunk_target['target'].squeeze(0),
+                            'target': chunk_target['target'],
                             'video_path': chunk_target['video_path']
                         },
-                        synchronize=(
+                        synchronize=((
                             i == data_sampler.num_samples) and (
                             j == len(video_stream) - 1))
+                    )
+                # measure elapsed time
+                batch_time.update(time.time() - end)
+                end = time.time()
 
                 count += 1
-                if (count - offset) >= total // 20:  # Update progressbar every 5%
+                if (count - offset) >= total // 50:  # Update progressbar every 2%
                     t.update(count - offset)
                     offset = count
 
-            # measure elapsed time
-            batch_time.update(time.time() - end)
-            end = time.time()
-            if i % 20 == 0:
-                LOG.info('Video {}/{} ({:.02%}) | '
-                         'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
-                         'Data {data_time.val:.3f}s ({data_time.avg:.3f}s avg.) | '
-                         '{metric.name}: {metric}'.format(
-                            i, total_per_gpu, i/total_per_gpu, batch_time=batch_time,
-                            data_time=data_time, metric=video_metric.metric))
-                RESULTS.debug(video_metric.to_text())
+                    # Saving results and log info
+                    LOG.info('Video {}/{} ({:.02%}) | '
+                             'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
+                             'Data {data_time.val:.3f}s ({data_time.avg:.3f}s avg.) | '
+                             '{metric.name}: {metric}'.format(
+                                 i, total_per_gpu, i/total_per_gpu, batch_time=batch_time,
+                                 data_time=data_time, metric=video_metric.metric))
+                    RESULTS.debug(video_metric.to_text())
+
+            # Trying to empty gpu cache
+            torch.cuda.empty_cache()
 
     RESULTS.debug(video_metric.to_text())
     LOG.info('\n{metric.name}: {metric}'.format(metric=video_metric.metric))

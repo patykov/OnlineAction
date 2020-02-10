@@ -24,8 +24,9 @@ class VideoStream(VideoDataset):
         self.target = self._get_test_target(self.record, indices)
         self.total = self.target['target'].shape[0]
 
-        # It's done here to better exploit single image loading
-        self.internal_batch_size = 20 if self.mode == 'test' else 90
+        # It's done here to better explore single image loading
+        imgs_per_batch = 10
+        self.internal_batch_size = int(imgs_per_batch/3) if self.mode == 'test' else imgs_per_batch
 
         self.chunk_target = divide_chunks(self.target['target'], self.internal_batch_size)
         self.chunk_labels = divide_chunks(self.target['video_path'], self.internal_batch_size)

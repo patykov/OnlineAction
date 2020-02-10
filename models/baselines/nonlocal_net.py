@@ -111,12 +111,12 @@ class I3DResNet(nn.Module):
 
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample, temp_conv=temp_conv[0],
-                            addnon=nonlocal_block[0]))
+                            addnon=(nonlocal_block[0] and self.non_local)))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, stride=1, downsample=None,
                                 temp_conv=temp_conv[i],
-                                addnon=nonlocal_block[i] if self.non_local else False))
+                                addnon=(nonlocal_block[i] and self.non_local)))
 
         return nn.Sequential(*layers)
 

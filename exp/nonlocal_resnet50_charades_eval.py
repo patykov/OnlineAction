@@ -12,12 +12,12 @@ args = [
     '--pretrained_weights', '/data/OnlineActionRecognition/models/' +
                             'charades_resnet50nl32_full_config1/' +
                             'charades_resnet50nl32_full_config1_best_model.pth',
-    '--log_file', 'eval_charades_r50_i3d_nl_32x2_1video',
+    '--log_file', 'eval_charades_r50_i3d_nl_32x2_test',
     '--sample_frames', '32',
     '--dataset', 'charades',
     '--backbone', 'resnet50',
     '--arch', 'nonlocal_net',
-    '--mode', 'val'
+    '--mode', 'test'
 
 ]
 sys.argv.extend(args)

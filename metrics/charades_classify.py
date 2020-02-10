@@ -12,7 +12,7 @@ def charades_v1_classify(cls_file, gt_path, per_frame=False, calibrated=False):
         Evaluate charades dataset for multi-label classification per video.
         Adapted from Charades_v1_classify.m code from charades dataset providers.
 
-    Argument:
+        Argument:
             cls_file: path of the input file with the classification scores
             gt_path: the path of the groundtruth file
         Returns:

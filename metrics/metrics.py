@@ -157,7 +157,7 @@ class VideoPerFrameMAP(VideoWrapper):
     def update_text(self, target):
         batch_size = target['target'].shape[0]
         for img_id in range(batch_size):
-            self.text += '{} {}\n'.format(target['video_path'][img_id][0], np.array2string(
+            self.text += '{} {}\n'.format(target['video_path'][img_id], np.array2string(
                 self.metric.predictions[-1][img_id].numpy(), separator=' ',
                 formatter={'float_kind': lambda x: '%.8f' % x})[1:-1].replace('\n', ''))
 

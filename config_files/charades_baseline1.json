@@ -1,5 +1,5 @@
 {
-    "nonlocal": true,
+    "nonlocal": false,
     "weight_decay": 1e-5,
     "learning_scheduler": {
         "type": "reduce_lr",
@@ -8,6 +8,6 @@
             "initial_lr": 1.0
         }
     },
-    "num_epochs": 50,
+    "num_epochs": 40,
     "batch_size": 16
 }

@@ -10,14 +10,15 @@ args = [
     '--map_file', '/data/Datasets/Kinetics/400/Annotation/val_clips_256_list.txt',
     '--root_data_path', '/data/Datasets/Kinetics/400/val_clips_256',
     '--pretrained_weights', '/data/OnlineActionRecognition/models/pre-trained/' +
-                            'resnet50_nonlocal_i3d_kinetics_32x2.pth',
-    '--log_file', 'causal_eval_kinetics',
+                            'resnet50_baseline_i3d_kinetics_32x2.pth',
+    '--log_file', 'causal_eval_kinetics_r50_baseline_32x2_valCenterCrop',
     '--sample_frames', '32',
     '--dataset', 'kinetics',
     '--backbone', 'resnet50',
     '--arch', 'nonlocal_net',
     '--mode', 'val',
-    '--subset'
+    '--subset',
+    '--baseline'
 ]
 sys.argv.extend(args)
 

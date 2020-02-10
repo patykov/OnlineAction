@@ -6,14 +6,14 @@ class VideoRecord(object):
     def __init__(self, video_path, label, reliable=False):
         self.path = video_path
         self.label = label
-        self.num_frames, self.fps = self._get_video_data(reliable)
+        self.num_frames, self.fps, self.frame_shape = self._get_video_data(reliable)
 
     def _get_video(self):
         return cv2.VideoCapture(self.path)
 
     def _get_video_data(self, reliable):
         video = self._get_video()
-        success, _ = video.read()
+        success, frame = video.read()
         if not success:
             raise ValueError('Failed to load video {}'.format(self.path))
 
@@ -30,7 +30,7 @@ class VideoRecord(object):
                 count += 1
 
         video.release()
-        return count, fps
+        return count, fps, frame.shape
 
     def get_frames(self, indices):
         """
