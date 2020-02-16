@@ -1,25 +1,18 @@
 import os
+from collections import defaultdict
 
 import numpy as np
-import torch
 
 import metrics.charades_classify as cc
+import torch
 from datasets.get import get_dataloader, get_dataset
 
 
 def divide_per_video(ids, targets):
-    videos = {}
+    videos = defaultdict(lambda: defaultdict(list))
 
-    video_name = None
     for i, video_frame in enumerate(ids):
-        name = video_frame.split('_')[0]
-        if name != video_name:
-            # new video!
-            videos[name] = {
-                'ids': [],
-                'targets': []
-            }
-            video_name = name
+        video_name = video_frame.split('_')[0]
 
         videos[video_name]['ids'].append(video_frame)
         videos[video_name]['targets'].append(targets[i])

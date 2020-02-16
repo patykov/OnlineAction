@@ -1,9 +1,9 @@
 import re
 
 import numpy as np
-from sklearn.metrics import classification_report
 
 from metrics.metrics import per_class_accuracy
+from sklearn.metrics import classification_report
 
 
 def get_top_predictions(video_pred, video_labels):
@@ -82,7 +82,7 @@ def read_file(file_path):
         _ = file.readline()  # removing header
         text = sorted(file.readlines())
 
-    split_text = [t.replace('\n', '').split('|') for t in text if t != '\n']
+    split_text = [t.strip().split('|') for t in text]
 
     if len(split_text[0]) > 2:
         labels, preds = divide_per_clip(split_text)

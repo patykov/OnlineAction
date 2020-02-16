@@ -1,10 +1,10 @@
 import os
 
 import numpy as np
-import torch.utils.data as data
-import torchvision
 from numpy.random import randint
 
+import torch.utils.data as data
+import torchvision
 import transforms as t
 from datasets.video_record import VideoRecord
 
@@ -19,6 +19,7 @@ class VideoDataset(data.Dataset):
         transform: A function that takes in an PIL image and returns a transformed version.
         mode: Set the dataset mode as 'train', 'val' or 'test'.
         test_clips: Number of clips to be evenly sampled from each full-length video for evaluation.
+        subset: If true, selects only a small subset of the dataset to work on.
     """
     input_mean = [0.485, 0.456, 0.406]
     input_std = [0.229, 0.224, 0.225]

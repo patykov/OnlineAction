@@ -2,9 +2,9 @@ import csv
 import os
 
 import numpy as np
-from tqdm import tqdm
 
 from datasets.charades_stream import CharadesStream
+from tqdm import tqdm
 
 
 def charades_v1_classify(cls_file, gt_path, per_frame=False, calibrated=False):
@@ -15,6 +15,8 @@ def charades_v1_classify(cls_file, gt_path, per_frame=False, calibrated=False):
     Argument:
             cls_file: path of the input file with the classification scores
             gt_path: the path of the groundtruth file
+            per_frame: if true, reads data of the 'per-frame' format
+            calibrated: if true uses calibrated precision instead of precision
         Returns:
             rec_all: recall
             prec_all: precision
@@ -202,8 +204,6 @@ def save(log_file, gt_file, output_file, per_frame=False, calibrated=False,
 def get_w_array(targets):
     targets = np.array(targets, dtype='int')
     num_classes = targets.shape[1]
-    pos_count = np.zeros(num_classes)
-    neg_count = np.zeros(num_classes)
 
     sum_targets = targets.sum(axis=0)
     pos_count = sum_targets
