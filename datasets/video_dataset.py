@@ -56,6 +56,12 @@ class VideoDataset(data.Dataset):
         self.video_list = None
         raise NotImplementedError()
 
+    def select_classes_over_thres(self, file_path):
+        raise NotImplementedError()
+
+    def select_classes_by_verb(self, file_path):
+        raise NotImplementedError()
+
     def _get_train_indices(self, record):
         """
         Args:
@@ -166,7 +172,8 @@ class VideoDataset(data.Dataset):
         elif self.mode == 'test':
             cropping = torchvision.transforms.Compose([
                 t.GroupResize(256),
-                t.GroupFullyConv(256)
+                # t.GroupCenterCrop(224)
+                # t.GroupFullyConv(256)
             ])
         elif self.mode == 'train':
             cropping = torchvision.transforms.Compose([

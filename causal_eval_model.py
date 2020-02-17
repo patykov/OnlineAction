@@ -85,7 +85,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
                     num_classes=num_classes, mode=mode, distributed=False, num_workers=0)
                 for j, (chunk_data, chunk_target) in enumerate(video_stream):
                     chunk_data = chunk_data.to('cuda')
-                    output = model(chunk_data)  # .to('cpu')
+                    output = model(chunk_data) 
 
                     video_metric.add(
                         pooling_output(output) if mode == 'test' else output,

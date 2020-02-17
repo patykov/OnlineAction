@@ -121,8 +121,10 @@ class VideoWrapper:
         self.metric.reset()
 
     def add(self, output, target, **kargs):
-        self.metric.add(output, target['target'], **kargs)
-        self.update_text(target)
+        self._add(output, target, **kargs)
+
+    def _add(self, output, target, **kargs):
+        raise NotImplementedError()
 
     def update_text(self, target):
         raise NotImplementedError()
@@ -137,6 +139,11 @@ class VideoWrapper:
 
 
 class VideoPerFrameAccuracy(VideoWrapper):
+    def __init__(self, metric):
+        super().__init__(metric)
+        self.video_target = None
+        self.video_predictions = []
+
     def reset(self):
         self.text = '{:^40} | {:^5} | {}\n'.format(
             'Path', 'Label', 'Top5 predition')
@@ -152,6 +159,19 @@ class VideoPerFrameAccuracy(VideoWrapper):
                 target['target'][img_id].item(),
                 np.array2string(pred, separator=' ')[1:-1])
 
+    def _add(self, output, target, synchronize=True):
+        if synchronize:
+            self.targets.append(hvd.allgather(target.cpu(), name=self.name + '_target'))
+            self.predictions.append(hvd.allgather(prediction.cpu(), name=self.name + '_pred'))
+        else:
+            self.targets.append(target.cpu())
+            self.predictions.append(prediction.cpu())
+
+    # def get_video_prediction(self):
+        # percentage_result = []
+        # for i in range(1, 11):
+
+
 
 class VideoPerFrameMAP(VideoWrapper):
     def update_text(self, target):
@@ -161,12 +181,20 @@ class VideoPerFrameMAP(VideoWrapper):
                 self.metric.predictions[-1][img_id].numpy(), separator=' ',
                 formatter={'float_kind': lambda x: '%.8f' % x})[1:-1].replace('\n', ''))
 
+    def _add(self, output, target, **kargs):
+        self.metric.add(output, target['target'], **kargs)
+        self.update_text(target)
+
 
 class VideoMAP(VideoWrapper):
     def update_text(self, target):
         self.text += '{} {}\n'.format(target['video_path'][0], np.array2string(
             self.metric.predictions[-1].numpy(), separator=' ',
             formatter={'float_kind': lambda x: '%.8f' % x})[1:-1].replace('\n', ''))
+
+    def _add(self, output, target, **kargs):
+        self.metric.add(output, target['target'], **kargs)
+        self.update_text(target)
 
 
 class VideoAccuracy(VideoWrapper):
@@ -177,6 +205,10 @@ class VideoAccuracy(VideoWrapper):
     def update_text(self, target):
         self.text += '{:^5} | {:^20}\n'.format(target['target'][0], np.array2string(
             self.metric.predictions[-1].numpy(), separator=', ')[1:-1])
+
+    def _add(self, output, target, **kargs):
+        self.metric.add(output, target['target'], **kargs)
+        self.update_text(target)
 
 
 def per_class_accuracy(predictions, labels):
