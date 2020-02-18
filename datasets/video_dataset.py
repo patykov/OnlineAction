@@ -25,8 +25,15 @@ class VideoDataset(data.Dataset):
     num_classes = None
     multi_label = None
 
-    def __init__(self, root_path, list_file, sample_frames=32, transform=None,
-                 mode='train', test_clips=10, subset=False, selected_classes_file=None,
+    def __init__(self,
+                 root_path,
+                 list_file,
+                 sample_frames=32,
+                 transform=None,
+                 mode='train',
+                 test_clips=10,
+                 subset=False,
+                 selected_classes_file=None,
                  verb_classes_file=None):
         self.root_path = root_path
         self.list_file = list_file
@@ -72,16 +79,24 @@ class VideoDataset(data.Dataset):
         expanded_sample_length = int(self.clip_length * record.fps)
         if record.num_frames > expanded_sample_length:
             end_pos = randint(expanded_sample_length, record.num_frames)
-            offsets = np.linspace(
-                end_pos - expanded_sample_length, end_pos, self.sample_frames,
-                endpoint=True, dtype=int)
+            offsets = np.linspace(end_pos - expanded_sample_length,
+                                  end_pos,
+                                  self.sample_frames,
+                                  endpoint=True,
+                                  dtype=int)
         elif record.num_frames > self.sample_frames:
             end_pos = randint(self.sample_frames, record.num_frames)
-            offsets = np.linspace(
-                end_pos - self.sample_frames, end_pos, self.sample_frames, endpoint=True, dtype=int)
+            offsets = np.linspace(end_pos - self.sample_frames,
+                                  end_pos,
+                                  self.sample_frames,
+                                  endpoint=True,
+                                  dtype=int)
         else:
-            offsets = np.linspace(
-                0, record.num_frames - 1, self.sample_frames, endpoint=True, dtype=int)
+            offsets = np.linspace(0,
+                                  record.num_frames - 1,
+                                  self.sample_frames,
+                                  endpoint=True,
+                                  dtype=int)
 
         return offsets
 
@@ -93,15 +108,18 @@ class VideoDataset(data.Dataset):
             offsets : List of image indices to be loaded from a video.
         """
         expanded_sample_length = int(self.clip_length * record.fps)
-        sample_end_pos = np.linspace(
-            expanded_sample_length, record.num_frames, self.test_clips, dtype=int)
+        sample_end_pos = np.linspace(expanded_sample_length,
+                                     record.num_frames,
+                                     self.test_clips,
+                                     dtype=int)
         offsets = []
         for p in sample_end_pos:
             offsets.extend(
                 np.linspace(max(p - expanded_sample_length, 0),
                             min(p, record.num_frames - 1),
                             self.sample_frames,
-                            endpoint=True, dtype=int))
+                            endpoint=True,
+                            dtype=int))
 
         return offsets
 
@@ -167,13 +185,13 @@ class VideoDataset(data.Dataset):
         elif self.mode == 'val':
             cropping = torchvision.transforms.Compose([
                 t.GroupResize(256),
-                t.GroupCenterCrop(224)
+                # t.GroupCenterCrop(224)
             ])
         elif self.mode == 'test':
             cropping = torchvision.transforms.Compose([
                 t.GroupResize(256),
                 # t.GroupCenterCrop(224)
-                # t.GroupFullyConv(256)
+                t.GroupFullyConv(256)
             ])
         elif self.mode == 'train':
             cropping = torchvision.transforms.Compose([
