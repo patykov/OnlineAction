@@ -15,33 +15,17 @@ from utils import setup_logger
 torch.backends.cudnn.benchmarks = True
 
 
-def eval(map_file,
-         root_data_path,
-         pretrained_weights,
-         arch,
-         backbone,
-         baseline,
-         mode,
-         dataset,
-         sample_frames,
-         workers,
-         selected_classes_file=None,
-         verb_classes_file=None):
+def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline, mode, dataset,
+         sample_frames, workers, selected_classes_file=None, verb_classes_file=None):
     start_time = time.time()
 
     LOG = logging.getLogger(name='eval')
     RESULTS = logging.getLogger(name='results')
 
     # Loading data
-    data_loader = get_dataloader(dataset,
-                                 list_file=map_file,
-                                 root_path=root_data_path,
-                                 mode=mode,
-                                 sample_frames=sample_frames,
-                                 batch_size=1,
-                                 num_workers=workers,
-                                 distributed=True,
-                                 selected_classes_file=selected_classes_file,
+    data_loader = get_dataloader(dataset, list_file=map_file, root_path=root_data_path, mode=mode,
+                                 sample_frames=sample_frames, batch_size=1, num_workers=workers,
+                                 distributed=True, selected_classes_file=selected_classes_file,
                                  verb_classes_file=verb_classes_file)
 
     total_num = len(data_loader.dataset)
@@ -53,14 +37,9 @@ def eval(map_file,
     LOG.debug(data_loader.dataset)
 
     # Loading model
-    model = get_model(arch=arch,
-                      backbone=backbone,
-                      pretrained_weights=pretrained_weights,
-                      mode=mode,
-                      num_classes=num_classes,
-                      non_local=baseline,
-                      frame_num=sample_frames,
-                      log_name='eval')
+    model = get_model(arch=arch, backbone=backbone, pretrained_weights=pretrained_weights,
+                      mode=mode, num_classes=num_classes, non_local=baseline, 
+                      frame_num=sample_frames, log_name='eval')
     model.eval()
     model_time = time.time()
 
@@ -115,12 +94,10 @@ def eval(map_file,
                 LOG.info('Video {}/{} ({:.02%}) | '
                          'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
                          'Data {data_time.val:.3f}s ({data_time.avg:.3f}s avg.) | '
-                         '{metric.name}: {metric}'.format(i,
-                                                          total_num,
-                                                          i / total_num,
-                                                          batch_time=batch_time,
-                                                          data_time=data_time,
-                                                          metric=video_metric.metric))
+                         '{metric.name}: {metric}'.format(
+                             i, total_num, i / total_num, batch_time=batch_time, 
+                             data_time=data_time, metric=video_metric.metric))
+
                 RESULTS.debug(video_metric.to_text())
 
     RESULTS.debug(video_metric.to_text())
@@ -140,21 +117,13 @@ def main():
     parser.add_argument('--baseline', action='store_false')
     parser.add_argument('--mode', type=str, default='val')
     parser.add_argument('--dataset', type=str, default='kinetics')
-    parser.add_argument('--sample_frames',
-                        type=int,
-                        default=8,
+    parser.add_argument('--sample_frames', type=int, default=8,
                         help='Number of frames to be sampled in the input.')
-    parser.add_argument('--workers',
-                        default=4,
-                        type=int,
+    parser.add_argument('--workers', default=4, type=int,
                         help='Number of workers on the data loading subprocess.')
-    parser.add_argument('--selected_classes_file',
-                        type=str,
-                        default=None,
+    parser.add_argument('--selected_classes_file', type=str, default=None,
                         help='Full path to the file with the classes to be used in training')
-    parser.add_argument('--verb_classes_file',
-                        type=str,
-                        default=None,
+    parser.add_argument('--verb_classes_file', type=str, default=None,
                         help='Full path to the file with the classes to verbs mapping')
 
     args = parser.parse_args()

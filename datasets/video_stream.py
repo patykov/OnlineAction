@@ -5,9 +5,14 @@ from datasets.video_record import VideoRecord
 
 
 class VideoStream(VideoDataset):
-
-    def __init__(self, video_path, label, num_classes=157, sample_frames=32, transform=None,
-                 mode='test', clip_length=3):
+    def __init__(self,
+                 video_path,
+                 label,
+                 num_classes=157,
+                 sample_frames=32,
+                 transform=None,
+                 mode='test',
+                 clip_length=3):
         self.record = VideoRecord(video_path, label)
         self.sample_frames = sample_frames
         self.clip_length = clip_length  # in seconds
@@ -25,13 +30,13 @@ class VideoStream(VideoDataset):
         self.total = self.target['target'].shape[0]
 
         # It's done here to better explore single image loading
-        imgs_per_batch = 10
+        imgs_per_batch = 5
         self.internal_batch_size = int(imgs_per_batch/3) if self.mode == 'test' else imgs_per_batch
 
         self.chunk_target = divide_chunks(self.target['target'], self.internal_batch_size)
         self.chunk_labels = divide_chunks(self.target['video_path'], self.internal_batch_size)
-        self.chunk_indices = divide_chunks(
-            divide_chunks(indices, self.sample_frames), self.internal_batch_size)
+        self.chunk_indices = divide_chunks(divide_chunks(indices, self.sample_frames),
+                                           self.internal_batch_size)
 
     def _get_test_indices(self, record):
         """

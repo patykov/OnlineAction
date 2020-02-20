@@ -8,8 +8,9 @@ from .charades_classify import charades_map
 
 class AverageMeter:
     """Computes and stores the average and current value"""
-    def __init__(self, name):
+    def __init__(self, name, synchronize=True):
         self.name = name
+        self.syncronize = synchronize
         self.reset()
 
     def reset(self):
@@ -21,9 +22,14 @@ class AverageMeter:
     @torch.no_grad()
     def update(self, val, n=1):
         self.val = val
-        self.sum += hvd.allreduce(torch.tensor(val), average=False, name=self.name + '_sum').item()
-        self.count += hvd.allreduce(torch.tensor(n), average=False,
-                                    name=self.name + '_count').item()
+        if self.syncronize:
+            self.sum += hvd.allreduce(torch.tensor(val),
+                                      average=False, name=self.name + '_sum').item()
+            self.count += hvd.allreduce(torch.tensor(n), average=False,
+                                        name=self.name + '_count').item()
+        else:
+            self.sum += val
+            self.count += n
         self.avg = self.sum / self.count
 
 
@@ -60,7 +66,6 @@ class TopK(Metric):
         super().__init__('/'.join(['top{}'.format(ki) for ki in k]))
         self.k = k
         self.maxk = max(k)
-        self.labels = []
         self.softmax = torch.nn.Softmax(dim=1)
 
     def reset(self):
@@ -149,9 +154,9 @@ class VideoPerFrameAccuracy(VideoWrapper):
         self.video_predictions = []
 
     def reset(self):
-        self.text = '{} | {} | {} | {}\n'.format('Path', 'Label',
-                                                 'Top{} classes'.format(self.metric.maxk),
-                                                 'Top{} predictions'.format(self.metric.maxk))
+        self.text = '{} | {} | {} | {}\n'.format(
+            'Path', 'Label', 'Top{} classes'.format(self.metric.maxk),
+            'Top{} predictions'.format(self.metric.maxk))
         self.metric.reset()
 
     def update_text(self, target):
@@ -160,10 +165,11 @@ class VideoPerFrameAccuracy(VideoWrapper):
             label = self.metric.labels[-1][img_id].numpy()
             pred = self.metric.predictions[-1][img_id].numpy()
 
-            self.text += '{} | {} | {} | {}\n'.format(target['video_path'][img_id],
-                                                      target['target'][img_id].item(),
-                                                      np.array2string(label, separator=' ')[1:-1],
-                                                      np.array2string(pred, separator=' ')[1:-1])
+            self.text += '{} | {} | {} | {}\n'.format(
+                target['video_path'][img_id],
+                target['target'][img_id].item(),
+                np.array2string(label, separator=' ')[1:-1],
+                np.array2string(pred, separator=' ')[1:-1])
 
 
 class VideoPerFrameMAP(VideoWrapper):
