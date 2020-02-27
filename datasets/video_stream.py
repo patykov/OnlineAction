@@ -7,7 +7,7 @@ from datasets.video_record import VideoRecord
 class VideoStream(VideoDataset):
 
     def __init__(self, video_path, label, num_classes=157, sample_frames=32, transform=None,
-                 mode='test', clip_length=3):
+                 mode='centerCrop', clip_length=3):
         self.record = VideoRecord(video_path, label)
         self.sample_frames = sample_frames
         self.clip_length = clip_length  # in seconds
@@ -76,7 +76,9 @@ class VideoStream(VideoDataset):
         fmt_str += '    Video Path: {}\n'.format(self.record.path)
         fmt_str += '    Number of frames: {}\n'.format(self.record.num_frames)
         fmt_str += '    Video fps: {}\n'.format(self.record.fps)
-        fmt_str += '    Classes: {}\n'.format(self.record.classes)
+        tmp = '    Transforms (if any): '
+        fmt_str += '{0}{1}\n'.format(tmp,
+                                     self.transform.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
 
         return fmt_str
 

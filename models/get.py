@@ -4,10 +4,8 @@ from importlib import import_module
 import torch.nn
 
 
-def get_model(arch, backbone, pretrained_weights, mode, num_classes, non_local, frame_num,
-              fine_tune=False, log_name='training'):
-    assert mode in ['train', 'test', 'val'], (
-        'Mode {} does not exist. Choose between "train, "val" or "test".'.format(mode))
+def get_model(arch, backbone, pretrained_weights, num_classes, non_local, frame_num,
+              fullyConv=False, fine_tune=False, log_name='training'):
 
     model = getattr(import_module('models.baselines.' + arch), backbone)(
         num_classes=num_classes, non_local=non_local, frame_num=frame_num)
@@ -25,7 +23,9 @@ def get_model(arch, backbone, pretrained_weights, mode, num_classes, non_local, 
             strict = False
         keys = model.load_state_dict(weights, strict=strict)
         LOG.info(keys)
-    model.set_mode(mode)
+    if fullyConv:
+        model.set_fullyConv()
+        LOG.info('Setting fully-convolutional inference')
 
     if torch.cuda.is_available():
         model.cuda()

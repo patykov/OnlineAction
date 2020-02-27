@@ -90,7 +90,7 @@ class I3DResNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
         self.avgdrop = nn.Dropout(0.5)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
-        self.mode = 'train'
+        self.fullyConv = False
 
         for m in self.modules():
             if isinstance(m, nn.Conv3d):
@@ -120,19 +120,13 @@ class I3DResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def set_mode(self, mode):
-        assert mode in ['train', 'val', 'test']
-
-        self.mode = mode
-        if self.mode == 'test':
-            self.set_fully_conv_test()
-
-    def set_fully_conv_test(self):
+    def set_fullyConv(self):
         """ Transform the last fc layer in a conv1x1 layer """
         fc_weights = self.fc.state_dict()["weight"]
         conv1x1 = nn.Conv3d(fc_weights.size(1), fc_weights.size(0), 1)
         conv1x1.weight.data = fc_weights.view(fc_weights.size(0), fc_weights.size(1), 1, 1, 1)
         self.conv1x1 = conv1x1
+        self.fullyConv = True
 
     def forward(self, x):
         x = self.conv1(x)
@@ -148,11 +142,10 @@ class I3DResNet(nn.Module):
 
         x = self.avgpool(x)
 
-        if self.mode == 'test':
+        if self.fullyConv:
             x = self.conv1x1(x)
             x = x.mean(4).mean(3).mean(2)
-
-        else:  # self.mode in ['train', 'val']
+        else:
             x = x.view(x.size(0), -1)
             x = self.avgdrop(x)
             x = self.fc(x)

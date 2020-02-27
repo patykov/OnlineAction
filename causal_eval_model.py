@@ -3,43 +3,29 @@ import logging
 import os
 import time
 
-import horovod.torch as hvd
 import torch.nn.parallel
 from torch.nn import AvgPool1d
 from tqdm import tqdm
 
+import horovod.torch as hvd
 import metrics.metrics as m
-from datasets.get import get_dataloader, get_distributed_sampler
+from datasets.get import get_dataloader, get_dataset, get_distributed_sampler
 from models.get import get_model
 from utils import setup_logger
 
 torch.backends.cudnn.benchmarks = True
 
 
-def eval(map_file,
-         root_data_path,
-         pretrained_weights,
-         arch,
-         backbone,
-         baseline,
-         mode,
-         subset,
-         dataset,
-         sample_frames,
-         workers,
-         selected_classes_file=None,
-         verb_classes_file=None):
+def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline, mode, subset,
+         dataset, sample_frames, workers, selected_classes_file=None, verb_classes_file=None):
     start_time = time.time()
 
     LOG = logging.getLogger(name='eval')
     RESULTS = logging.getLogger(name='results')
 
     # Loading data
-    data_sampler = get_distributed_sampler(dataset,
-                                           list_file=map_file,
-                                           root_path=root_data_path,
-                                           subset=subset,
-                                           mode='stream',
+    data_sampler = get_distributed_sampler(dataset, list_file=map_file, root_path=root_data_path,
+                                           subset=subset, mode=mode,
                                            sample_frames=sample_frames,
                                            selected_classes_file=selected_classes_file,
                                            verb_classes_file=verb_classes_file)
@@ -52,28 +38,46 @@ def eval(map_file,
         data_sampler.total_size, total_per_gpu))
     LOG.debug(video_dataset)
 
+    # Logging stream transforms
+    # video_path, label = video_dataset[0]
+    # stream_dataset = get_dataset((dataset, 'stream'), video_path=video_path, label=label,
+    #                              num_classes=num_classes, mode=mode)
+    # LOG.debug('Stream dataset sample:')
+    # LOG.debug(stream_dataset)
+
     # Loading model
     model = get_model(arch=arch,
                       backbone=backbone,
                       pretrained_weights=pretrained_weights,
-                      mode='val',
                       num_classes=num_classes,
                       non_local=baseline,
+                      fullyConv=True if mode == 'fullyConv' else False,
                       frame_num=sample_frames,
                       log_name='eval')
     model.eval()
     model_time = time.time()
 
-    def pooling_output(outputs):
-        avg_pool = AvgPool1d(3)
+    if video_dataset.multi_label:
 
-        data = outputs.view(1, num_classes, -1).contiguous()
-        # data = data.permute(0, 2, 1).contiguous()
+        def frame_output(outputs):
+            avg_pool = AvgPool1d(3)
 
-        data = avg_pool(data)  # GroupFullyConv takes 3 random crops of each frame
-        video_data = data.view(-1, num_classes).contiguous()
+            outputs = torch.sigmoid(outputs)
+            data = outputs.view(1, -1, num_classes).contiguous()
+            data = data.permute(0, 2, 1).contiguous()
 
-        return video_data
+            if '3crops' in mode:
+                # 3crops transform takes 3 random crops of each clip
+                data = avg_pool(data)
+            video_data = data.view(-1, num_classes).contiguous()
+
+            return video_data
+
+    else:
+        softmax = torch.nn.Softmax(dim=1)
+
+        def frame_output(outputs):
+            return softmax(outputs)
 
     # Horovod: broadcast parameters.
     hvd.broadcast_parameters(model.state_dict(), root_rank=0)
@@ -101,31 +105,27 @@ def eval(map_file,
                 # measure data loading time
                 data_time.update(time.time() - end)
 
-                video_stream = get_dataloader((dataset, 'stream'),
-                                              video_path=video_path,
-                                              label=label,
-                                              batch_size=None,
-                                              num_classes=num_classes,
-                                              mode=mode,
-                                              distributed=False,
-                                              num_workers=0)
+                video_stream = get_dataloader((dataset, 'stream'), video_path=video_path,
+                                              label=label, batch_size=None, num_classes=num_classes,
+                                              mode=mode, distributed=False, num_workers=0)
+
                 for j, (chunk_data, chunk_target) in enumerate(video_stream):
                     chunk_data = chunk_data.to('cuda')
                     output = model(chunk_data)
 
-                    video_metric.add(pooling_output(output) if mode == 'test' else output, {
+                    video_metric.add(output, {
                         'target': chunk_target['target'],
                         'video_path': chunk_target['video_path']
                     },
-                                     synchronize=((i == data_sampler.num_samples)
-                                                  and (j == len(video_stream) - 1)))
+                        synchronize=((i == data_sampler.num_samples)
+                                     and (j == len(video_stream) - 1)))
 
                 # measure elapsed time
                 batch_time.update(time.time() - end)
                 end = time.time()
 
                 count += 1
-                if (count - offset) >= total // 50:  # Update progressbar every 2%
+                if (count - offset) >= total // 100:  # Update progressbar every 1%
                     t.update(count - offset)
                     offset = count
 
@@ -140,12 +140,13 @@ def eval(map_file,
                                                               data_time=data_time,
                                                               metric=video_metric.metric))
                     RESULTS.debug(video_metric.to_text())
+                    # video_metric.reset()
 
-            # Trying to empty gpu cache
-            torch.cuda.empty_cache()
+                # Trying to empty gpu cache
+                torch.cuda.empty_cache()
 
     RESULTS.debug(video_metric.to_text())
-    LOG.info('\n{metric.name}: {metric}'.format(metric=video_metric.metric))
+    # LOG.info('\n{metric.name}: {metric}'.format(metric=video_metric.metric))
 
 
 def main():
@@ -159,7 +160,7 @@ def main():
     parser.add_argument('--arch', type=str, default='nonlocal_net')
     parser.add_argument('--backbone', type=str, default='resnet50')
     parser.add_argument('--baseline', action='store_false')
-    parser.add_argument('--mode', type=str, default='val')
+    parser.add_argument('--mode', type=str, default='fullyConv')
     parser.add_argument('--dataset', type=str, default='kinetics')
     parser.add_argument('--sample_frames',
                         type=int,

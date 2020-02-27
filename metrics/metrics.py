@@ -1,7 +1,8 @@
-import horovod.torch as hvd
 import numpy as np
 import torch
 from sklearn.metrics import confusion_matrix
+
+import horovod.torch as hvd
 
 from .charades_classify import charades_map
 
@@ -143,17 +144,6 @@ class VideoWrapper:
 
 
 class VideoPerFrameAccuracy(VideoWrapper):
-    def __init__(self, metric):
-        super().__init__(metric)
-        self.video_target = None
-        self.video_predictions = []
-
-    def reset(self):
-        self.text = '{} | {} | {} | {}\n'.format('Path', 'Label',
-                                                 'Top{} classes'.format(self.metric.maxk),
-                                                 'Top{} predictions'.format(self.metric.maxk))
-        self.metric.reset()
-
     def update_text(self, target):
         batch_size = target['target'].shape[0]
         for img_id in range(batch_size):
@@ -163,7 +153,12 @@ class VideoPerFrameAccuracy(VideoWrapper):
             self.text += '{} | {} | {} | {}\n'.format(target['video_path'][img_id],
                                                       target['target'][img_id].item(),
                                                       np.array2string(label, separator=' ')[1:-1],
-                                                      np.array2string(pred, separator=' ')[1:-1])
+                                                      np.array2string(
+                                                          pred,
+                                                          separator=' ',
+                                                          formatter={
+                                                              'float_kind': lambda x: '%.5f' % x
+                                                              })[1:-1].replace('\n', '')[1:-1])
 
 
 class VideoPerFrameMAP(VideoWrapper):
@@ -188,14 +183,13 @@ class VideoMAP(VideoWrapper):
 
 
 class VideoAccuracy(VideoWrapper):
-    def reset(self):
-        self.text = '{:^5} | {:^20}\n'.format('Label', 'Top5 predition')
-        self.metric.reset()
-
     def update_text(self, target):
-        self.text += '{:^5} | {:^20}\n'.format(
+        self.text += '{:^5} | {} | {}\n'.format(
             target['target'][0],
-            np.array2string(self.metric.predictions[-1].numpy(), separator=', ')[1:-1])
+            np.array2string(self.metric.labels[-1].numpy(), separator=', ')[1:-1],
+            np.array2string(self.metric.predictions[-1].numpy(),
+                            separator=', ',
+                            formatter={'float_kind': lambda x: '%.5f' % x})[1:-1])
 
 
 def per_class_accuracy(predictions, labels):
