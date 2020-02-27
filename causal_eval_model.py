@@ -24,10 +24,11 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     RESULTS = logging.getLogger(name='results')
 
     # Loading data
-    data_sampler = get_distributed_sampler(
-        dataset, list_file=map_file, root_path=root_data_path, subset=subset, mode='stream',
-        sample_frames=sample_frames, selected_classes_file=selected_classes_file,
-        verb_classes_file=verb_classes_file)
+    data_sampler = get_distributed_sampler(dataset, list_file=map_file, root_path=root_data_path,
+                                           subset=subset, mode=mode,
+                                           sample_frames=sample_frames,
+                                           selected_classes_file=selected_classes_file,
+                                           verb_classes_file=verb_classes_file)
     video_dataset = data_sampler.dataset
 
     total_per_gpu = data_sampler.num_samples
@@ -39,22 +40,38 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     LOG.debug(video_dataset)
 
     # Loading model
-    model = get_model(
-        arch=arch, backbone=backbone, pretrained_weights=pretrained_weights, mode='val',
-        num_classes=num_classes, non_local=baseline, frame_num=sample_frames, log_name='eval')
+    model = get_model(arch=arch,
+                      backbone=backbone,
+                      pretrained_weights=pretrained_weights,
+                      num_classes=num_classes,
+                      non_local=baseline,
+                      fullyConv=True if mode == 'fullyConv' else False,
+                      frame_num=sample_frames,
+                      log_name='eval')
     model.eval()
     model_time = time.time()
 
-    def pooling_output(outputs):
-        avg_pool = AvgPool1d(3)
+    if video_dataset.multi_label:
 
-        data = outputs.view(1, num_classes, -1).contiguous()
-        # data = data.permute(0, 2, 1).contiguous()
+        def frame_output(outputs):
+            avg_pool = AvgPool1d(3)
 
-        data = avg_pool(data)  # GroupFullyConv takes 3 random crops of each frame
-        video_data = data.view(-1, num_classes).contiguous()
+            outputs = torch.sigmoid(outputs)
+            data = outputs.view(1, -1, num_classes).contiguous()
+            data = data.permute(0, 2, 1).contiguous()
 
-        return video_data
+            if '3crops' in mode:
+                # 3crops transform takes 3 random crops of each clip
+                data = avg_pool(data)
+            video_data = data.view(-1, num_classes).contiguous()
+
+            return video_data
+
+    else:
+        softmax = torch.nn.Softmax(dim=1)
+
+        def frame_output(outputs):
+            return softmax(outputs)
 
     # Horovod: broadcast parameters.
     hvd.broadcast_parameters(model.state_dict(), root_rank=0)
@@ -79,32 +96,29 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
                 video_path, label = video_dataset[vid]
                 # measure data loading time
                 data_time.update(time.time() - end)
-                # print(video_path)
-                video_stream = get_dataloader(
-                    (dataset, 'stream'), video_path=video_path, label=label, batch_size=None,
-                    num_classes=num_classes, mode=mode, distributed=False, num_workers=0)
+
+                video_stream = get_dataloader((dataset, 'stream'), video_path=video_path,
+                                              label=label, batch_size=None, num_classes=num_classes,
+                                              mode=mode, distributed=False, num_workers=0)
+
                 for j, (chunk_data, chunk_target) in enumerate(video_stream):
                     chunk_data = chunk_data.to('cuda')
                     # print('Got frames - {}'.format(j))
                     output = model(chunk_data)
-                    # print('Got output')
-                    video_metric.add(
-                        pooling_output(output) if mode == 'test' else output, {
-                            'target': chunk_target['target'],
-                            'video_path': chunk_target['video_path']
-                        },
-                        synchronize=(
-                            (i == data_sampler.num_samples) and
-                            (j == len(video_stream) - 1))
-                    )
-                    # print('Save metric')
+
+                    video_metric.add(output, {
+                        'target': chunk_target['target'],
+                        'video_path': chunk_target['video_path']
+                    },
+                        synchronize=((i == data_sampler.num_samples)
+                                     and (j == len(video_stream) - 1)))
 
                 # measure elapsed time
                 batch_time.update(time.time() - end)
                 end = time.time()
 
                 count += 1
-                if (count - offset) >= total // 50:  # Update progressbar every 2%
+                if (count - offset) >= total // 100:  # Update progressbar every 1%
                     t.update(count - offset)
                     offset = count
 
@@ -117,12 +131,13 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
                             i, total_per_gpu, i / total_per_gpu, batch_time=batch_time,
                             data_time=data_time, metric=video_metric.metric))
                     RESULTS.debug(video_metric.to_text())
+                    # video_metric.reset()
 
-            # Trying to empty gpu cache
-            torch.cuda.empty_cache()
+                # Trying to empty gpu cache
+                torch.cuda.empty_cache()
 
     RESULTS.debug(video_metric.to_text())
-    LOG.info('\n{metric.name}: {metric}'.format(metric=video_metric.metric))
+    # LOG.info('\n{metric.name}: {metric}'.format(metric=video_metric.metric))
 
 
 def main():
@@ -136,7 +151,7 @@ def main():
     parser.add_argument('--arch', type=str, default='nonlocal_net')
     parser.add_argument('--backbone', type=str, default='resnet50')
     parser.add_argument('--baseline', action='store_false')
-    parser.add_argument('--mode', type=str, default='val')
+    parser.add_argument('--mode', type=str, default='fullyConv')
     parser.add_argument('--dataset', type=str, default='kinetics')
     parser.add_argument('--sample_frames', type=int, default=8,
                         help='Number of frames to be sampled in the input.')

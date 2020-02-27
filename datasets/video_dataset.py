@@ -17,24 +17,14 @@ class VideoDataset(data.Dataset):
             with its annotations.
         sample_frames: Number of frames used in the input (temporal dimension).
         transform: A function that takes in an PIL image and returns a transformed version.
-        mode: Set the dataset mode as 'train', 'val' or 'test'.
+        mode: Set the dataset mode as 'train', 'val', 'test'.
         test_clips: Number of clips to be evenly sampled from each full-length video for evaluation.
     """
-    input_mean = [0.485, 0.456, 0.406]
-    input_std = [0.229, 0.224, 0.225]
     num_classes = None
     multi_label = None
 
-    def __init__(self,
-                 root_path,
-                 list_file,
-                 sample_frames=32,
-                 transform=None,
-                 mode='train',
-                 test_clips=10,
-                 subset=False,
-                 selected_classes_file=None,
-                 verb_classes_file=None):
+    def __init__(self, root_path, list_file, sample_frames=32, transform=None, mode='train',
+                 test_clips=10, subset=False, selected_classes_file=None, verb_classes_file=None):
         self.root_path = root_path
         self.list_file = list_file
         self.sample_frames = sample_frames
@@ -134,15 +124,17 @@ class VideoDataset(data.Dataset):
         try:
             record = VideoRecord(os.path.join(self.root_path, video_path), label)
 
-            if self.mode == 'stream':
+            if 'stream' in self.mode:
                 return os.path.join(self.root_path, video_path), label
 
-            elif self.mode in ['train', 'val']:
-                segment_indices = self._get_train_indices(record)
-                target = self._get_train_target(record, segment_indices)
-            else:
+            elif 'video' in self.mode:
                 segment_indices = self._get_test_indices(record)
                 target = self._get_test_target(record)
+
+            else:  # train, val
+                segment_indices = self._get_train_indices(record)
+                target = self._get_train_target(record, segment_indices)
+
             data = self.get(record, segment_indices)
 
         except ValueError as e:
@@ -159,7 +151,7 @@ class VideoDataset(data.Dataset):
             indices : List of image indices to be loaded from a video.
         Returns:
             data : Numpy array with the loaded and transformed data from the video.
-        """
+            """
         uniq_id = np.unique(indices)
         uniq_imgs = record.get_frames(uniq_id)
 
@@ -178,36 +170,42 @@ class VideoDataset(data.Dataset):
         Returns:
             A transform function to be applied in the PIL images.
         """
-        if self.mode == 'stream':
-            # Stream mode does not apply transformation, returning only the video path and label
-            return None
+        # if self.mode == 'stream':
+        #     # Stream mode does not apply transformation, returning only the video path and label
+        #     return None
 
-        elif self.mode == 'val':
-            cropping = torchvision.transforms.Compose([
-                t.GroupResize(256),
-                # t.GroupCenterCrop(224)
-            ])
-        elif self.mode == 'test':
-            cropping = torchvision.transforms.Compose([
-                t.GroupResize(256),
-                # t.GroupCenterCrop(224)
-                t.GroupFullyConv(256)
-            ])
-        elif self.mode == 'train':
+        if self.mode == 'train':
             cropping = torchvision.transforms.Compose([
                 t.GroupRandomResize(256, 320),
                 t.GroupRandomCrop(224),
                 t.GroupRandomHorizontalFlip()
             ])
+
+        elif 'centerCrop' in self.mode:
+            cropping = torchvision.transforms.Compose([
+                t.GroupResize(256),
+                t.GroupCenterCrop(224)
+            ])
+
+        elif 'fullyConv' in self.mode:
+            cropping = torchvision.transforms.Compose([
+                t.GroupResize(256)
+            ])
+
+        elif '3crops' in self.mode:
+            cropping = torchvision.transforms.Compose([
+                t.GroupResize(256),
+                t.GroupFullyConv(256)
+            ])
+
         else:
-            raise ValueError(
-                'Mode {} does not exist. Choose between: val, stream, test or train.'.format(
-                    self.mode))
+            raise ValueError(("Mode {} does not exist. Choose between: stream, train or "
+                              "[stream/video]_[centerCrop/fullyConv/3crops].").format(self.mode))
 
         transforms = torchvision.transforms.Compose([
             cropping,
             t.GroupToTensorStack(),
-            t.GroupNormalize(mean=self.input_mean, std=self.input_std)
+            t.GroupNormalize()
         ])
 
         return transforms

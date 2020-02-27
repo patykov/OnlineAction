@@ -16,7 +16,7 @@ torch.backends.cudnn.benchmarks = True
 
 
 def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline, mode, dataset,
-         sample_frames, workers, selected_classes_file=None, verb_classes_file=None):
+         sample_frames, workers, fullyConv, selected_classes_file=None, verb_classes_file=None):
     start_time = time.time()
 
     LOG = logging.getLogger(name='eval')
@@ -37,9 +37,14 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     LOG.debug(data_loader.dataset)
 
     # Loading model
-    model = get_model(arch=arch, backbone=backbone, pretrained_weights=pretrained_weights,
-                      mode=mode, num_classes=num_classes, non_local=baseline, 
-                      frame_num=sample_frames, log_name='eval')
+    model = get_model(arch=arch,
+                      backbone=backbone,
+                      pretrained_weights=pretrained_weights,
+                      fullyConv=fullyConv,
+                      num_classes=num_classes,
+                      non_local=baseline,
+                      frame_num=sample_frames,
+                      log_name='eval')
     model.eval()
     model_time = time.time()
 
@@ -49,22 +54,23 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
             max_pool = MaxPool1d(data_loader.dataset.test_clips)
             avg_pool = AvgPool1d(3)
 
+            # outputs = torch.sigmoid(outputs)
             data = outputs.view(1, -1, num_classes).contiguous()
             data = data.permute(0, 2, 1).contiguous()
 
             data = max_pool(data)
-            if mode == 'test':
-                # During test, fullyconv transform takes 3 random crops of each clip
+            if '3crops' in mode:
+                # 3crops transform takes 3 random crops of each clip
                 data = avg_pool(data)
             video_data = data.view(-1, num_classes).contiguous()
 
             return video_data
 
     else:
-        softmax = torch.nn.Softmax(dim=1)
+        # softmax = torch.nn.Softmax(dim=1)
 
         def video_output(outputs):
-            return softmax(outputs).mean(0)
+            return outputs.mean(0)  # softmax(outputs).mean(0)
 
     # Horovod: broadcast parameters.
     hvd.broadcast_parameters(model.state_dict(), root_rank=0)
@@ -90,15 +96,18 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
-            if i % 50 == 0:
+            if i % 100 == 0:
                 LOG.info('Video {}/{} ({:.02%}) | '
                          'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
                          'Data {data_time.val:.3f}s ({data_time.avg:.3f}s avg.) | '
                          '{metric.name}: {metric}'.format(
-                             i, total_num, i / total_num, batch_time=batch_time, 
+                             i, total_num, i / total_num, batch_time=batch_time,
                              data_time=data_time, metric=video_metric.metric))
 
                 RESULTS.debug(video_metric.to_text())
+
+            # Trying to empty gpu cache
+            torch.cuda.empty_cache()
 
     RESULTS.debug(video_metric.to_text())
     LOG.info('\n{metric.name}: {metric}'.format(metric=video_metric.metric))
@@ -115,7 +124,8 @@ def main():
     parser.add_argument('--arch', type=str, default='nonlocal_net')
     parser.add_argument('--backbone', type=str, default='resnet50')
     parser.add_argument('--baseline', action='store_false')
-    parser.add_argument('--mode', type=str, default='val')
+    parser.add_argument('--mode', type=str, default='val_fullyConv')
+    parser.add_argument('--fullyConv', type=bool, default=True)
     parser.add_argument('--dataset', type=str, default='kinetics')
     parser.add_argument('--sample_frames', type=int, default=8,
                         help='Number of frames to be sampled in the input.')
@@ -127,9 +137,7 @@ def main():
                         help='Full path to the file with the classes to verbs mapping')
 
     args = parser.parse_args()
-    assert args.mode in [
-        'test', 'val'
-    ], ('Mode {} does not exist. Choose between "val" or "test" for evaluation'.format(args.mode))
+
     assert args.dataset in [
         'kinetics', 'charades'
     ], ('Dataset {} not available. Choose between "kinetics" or "charades".'.format(args.dataset))
@@ -153,7 +161,7 @@ def main():
         setup_logger('results', results_file)
 
     eval(args.map_file, args.root_data_path, args.pretrained_weights, args.arch, args.backbone,
-         args.baseline, args.mode, args.dataset, args.sample_frames, args.workers,
+         args.baseline, args.mode, args.dataset, args.sample_frames, args.workers, args.fullyConv,
          args.selected_classes_file, args.verb_classes_file)
 
 
