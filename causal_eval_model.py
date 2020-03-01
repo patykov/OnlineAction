@@ -4,12 +4,11 @@ import os
 import time
 
 import torch.nn.parallel
-from torch.nn import AvgPool1d
 from tqdm import tqdm
 
 import horovod.torch as hvd
 import metrics.metrics as m
-from datasets.get import get_dataloader, get_dataset, get_distributed_sampler
+from datasets.get import get_dataloader, get_distributed_sampler
 from models.get import get_model
 from utils import setup_logger
 
@@ -38,46 +37,17 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
         data_sampler.total_size, total_per_gpu))
     LOG.debug(video_dataset)
 
-    # Logging stream transforms
-    # video_path, label = video_dataset[0]
-    # stream_dataset = get_dataset((dataset, 'stream'), video_path=video_path, label=label,
-    #                              num_classes=num_classes, mode=mode)
-    # LOG.debug('Stream dataset sample:')
-    # LOG.debug(stream_dataset)
-
     # Loading model
     model = get_model(arch=arch,
                       backbone=backbone,
                       pretrained_weights=pretrained_weights,
                       num_classes=num_classes,
                       non_local=baseline,
-                      fullyConv=True if mode == 'fullyConv' else False,
+                      fullyConv=False if 'centerCrop' in mode else True,
                       frame_num=sample_frames,
                       log_name='eval')
     model.eval()
     model_time = time.time()
-
-    if video_dataset.multi_label:
-
-        def frame_output(outputs):
-            avg_pool = AvgPool1d(3)
-
-            outputs = torch.sigmoid(outputs)
-            data = outputs.view(1, -1, num_classes).contiguous()
-            data = data.permute(0, 2, 1).contiguous()
-
-            if '3crops' in mode:
-                # 3crops transform takes 3 random crops of each clip
-                data = avg_pool(data)
-            video_data = data.view(-1, num_classes).contiguous()
-
-            return video_data
-
-    else:
-        softmax = torch.nn.Softmax(dim=1)
-
-        def frame_output(outputs):
-            return softmax(outputs)
 
     # Horovod: broadcast parameters.
     hvd.broadcast_parameters(model.state_dict(), root_rank=0)
@@ -87,15 +57,15 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
 
     video_metric = m.VideoPerFrameMAP(
         m.mAP()) if data_sampler.dataset.multi_label else m.VideoPerFrameAccuracy(m.TopK(k=(1, 5)))
-    batch_time = m.AverageMeter('batch_time')
-    data_time = m.AverageMeter('data_time')
+    batch_time = m.AverageMeter('batch_time', synchronize=False)
+    data_time = m.AverageMeter('data_time', synchronize=False)
     with torch.no_grad():
 
         end = time.time()
         count = 0
         offset = 0
         total = data_sampler.total_size
-        with tqdm(desc='{} videos of {} total'.format(total_per_gpu, total),
+        with tqdm(desc='({}/{}) videos'.format(total_per_gpu, total),
                   total=total_per_gpu,
                   leave=True,
                   maxinterval=3600) as t:
@@ -130,17 +100,17 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
                     offset = count
 
                     # Saving results and log info
-                    LOG.info('Video {}/{} ({:.02%}) | '
-                             'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
-                             'Data {data_time.val:.3f}s ({data_time.avg:.3f}s avg.) | '
-                             '{metric.name}: {metric}'.format(i,
-                                                              total_per_gpu,
-                                                              i / total_per_gpu,
-                                                              batch_time=batch_time,
-                                                              data_time=data_time,
-                                                              metric=video_metric.metric))
+                    LOG.info(
+                        'Video {}/{} ({:.02%}) | '
+                        'Per GPU batch time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
+                        'Per GPU data time {data_time.val:.3f}s ({data_time.avg:.3f}s avg.) | '
+                        'Per GPU {metric.name}: {metric}'.format(i,
+                                                                 total_per_gpu,
+                                                                 i / total_per_gpu,
+                                                                 batch_time=batch_time,
+                                                                 data_time=data_time,
+                                                                 metric=video_metric.metric))
                     RESULTS.debug(video_metric.to_text())
-                    # video_metric.reset()
 
                 # Trying to empty gpu cache
                 torch.cuda.empty_cache()

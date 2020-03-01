@@ -97,7 +97,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
 
             data = data.squeeze(0).cuda()
             output = model(data).cpu()
-            video_metric.add(video_output(output), label)
+            video_metric.add(video_output(output), label, apply_func=False)
 
             # measure elapsed time
             batch_time.update(time.time() - end)

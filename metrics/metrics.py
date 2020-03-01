@@ -9,8 +9,9 @@ from .charades_classify import charades_map
 
 class AverageMeter:
     """Computes and stores the average and current value"""
-    def __init__(self, name):
+    def __init__(self, name, synchronize=True):
         self.name = name
+        self.synchronize = synchronize
         self.reset()
 
     def reset(self):
@@ -22,9 +23,14 @@ class AverageMeter:
     @torch.no_grad()
     def update(self, val, n=1):
         self.val = val
-        self.sum += hvd.allreduce(torch.tensor(val), average=False, name=self.name + '_sum').item()
-        self.count += hvd.allreduce(torch.tensor(n), average=False,
-                                    name=self.name + '_count').item()
+        if self.synchronize:
+            self.sum += hvd.allreduce(torch.tensor(val), average=False,
+                                      name=self.name + '_sum').item()
+            self.count += hvd.allreduce(torch.tensor(n), average=False,
+                                        name=self.name + '_count').item()
+        else:
+            self.sum += val
+            self.count += n
         self.avg = self.sum / self.count
 
 
@@ -68,8 +74,10 @@ class TopK(Metric):
         super().reset()
         self.labels = []
 
-    def _add(self, output, target, synchronize=True):
-        topk_pred, topk_labels = torch.topk(self.softmax(output), self.maxk)
+    def _add(self, output, target, synchronize=True, apply_func=True):
+        if apply_func:
+            output = self.softmax(output)
+        topk_pred, topk_labels = torch.topk(output, self.maxk)
 
         if synchronize:
             self.targets.append(
@@ -98,15 +106,16 @@ class mAP(Metric):
     def __init__(self):
         super().__init__('mAP')
 
-    def _add(self, output, target, synchronize=True):
-        prediction = torch.sigmoid(output)
+    def _add(self, output, target, synchronize=True, apply_func=True):
+        if apply_func:
+            output = self.sigmoid(output)
 
         if synchronize:
             self.targets.append(hvd.allgather(target.cpu(), name=self.name + '_target'))
-            self.predictions.append(hvd.allgather(prediction.cpu(), name=self.name + '_pred'))
+            self.predictions.append(hvd.allgather(output.cpu(), name=self.name + '_pred'))
         else:
             self.targets.append(target.cpu())
-            self.predictions.append(prediction.cpu())
+            self.predictions.append(output.cpu())
 
     def _get_value(self):
         mAP, _, _, _, _ = charades_map(np.vstack(self.predictions), np.vstack(self.targets))
