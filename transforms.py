@@ -77,11 +77,9 @@ class GroupRandomHorizontalFlip(object):
 
 
 class GroupNormalize(object):
-    def __init__(self, mean=None, std=None, num_channels=3):
-        default_mean = [0.485, 0.456, 0.406]
-        default_std = [0.229, 0.224, 0.225]
-        self.mean = mean if mean is not None else default_mean
-        self.std = std if std is not None else default_std
+    def __init__(self, mean, std, num_channels=3):
+        self.mean = mean
+        self.std = std
 
     def __call__(self, tensor):
         for t, m, s in zip(tensor, self.mean, self.std):

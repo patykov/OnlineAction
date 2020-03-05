@@ -10,7 +10,7 @@ class AverageMeter:
     """Computes and stores the average and current value"""
     def __init__(self, name, synchronize=True):
         self.name = name
-        self.syncronize = synchronize
+        self.synchronize = synchronize
         self.reset()
 
     def reset(self):
@@ -22,9 +22,9 @@ class AverageMeter:
     @torch.no_grad()
     def update(self, val, n=1):
         self.val = val
-        if self.syncronize:
-            self.sum += hvd.allreduce(torch.tensor(val),
-                                      average=False, name=self.name + '_sum').item()
+        if self.synchronize:
+            self.sum += hvd.allreduce(torch.tensor(val), average=False,
+                                      name=self.name + '_sum').item()
             self.count += hvd.allreduce(torch.tensor(n), average=False,
                                         name=self.name + '_count').item()
         else:
@@ -72,8 +72,10 @@ class TopK(Metric):
         super().reset()
         self.labels = []
 
-    def _add(self, output, target, synchronize=True):
-        topk_pred, topk_labels = torch.topk(self.softmax(output), self.maxk)
+    def _add(self, output, target, synchronize=True, apply_func=True):
+        if apply_func:
+            output = self.softmax(output)
+        topk_pred, topk_labels = torch.topk(output, self.maxk)
 
         if synchronize:
             self.targets.append(
@@ -102,15 +104,16 @@ class mAP(Metric):
     def __init__(self):
         super().__init__('mAP')
 
-    def _add(self, output, target, synchronize=True):
-        prediction = torch.sigmoid(output)
+    def _add(self, output, target, synchronize=True, apply_func=True):
+        if apply_func:
+            output = torch.sigmoid(output)
 
         if synchronize:
             self.targets.append(hvd.allgather(target.cpu(), name=self.name + '_target'))
-            self.predictions.append(hvd.allgather(prediction.cpu(), name=self.name + '_pred'))
+            self.predictions.append(hvd.allgather(output.cpu(), name=self.name + '_pred'))
         else:
             self.targets.append(target.cpu())
-            self.predictions.append(prediction.cpu())
+            self.predictions.append(output.cpu())
 
     def _get_value(self):
         mAP, _, _, _, _ = charades_map(np.vstack(self.predictions), np.vstack(self.targets))
@@ -155,15 +158,11 @@ class VideoPerFrameAccuracy(VideoWrapper):
             label = self.metric.labels[-1][img_id].numpy()
             pred = self.metric.predictions[-1][img_id].numpy()
 
-            self.text += '{} | {} | {} | {}\n'.format(target['video_path'][img_id],
-                                                      target['target'][img_id].item(),
-                                                      np.array2string(label, separator=' ')[1:-1],
-                                                      np.array2string(
-                                                          pred,
-                                                          separator=' ',
-                                                          formatter={
-                                                              'float_kind': lambda x: '%.5f' % x
-                                                              })[1:-1].replace('\n', '')[1:-1])
+            self.text += '{} | {} | {} | {}\n'.format(
+                target['video_path'][img_id],
+                target['target'][img_id].item(),
+                np.array2string(label, separator=' ')[1:-1],
+                np.array2string(pred, separator=' ')[1:-1])
 
 
 class VideoPerFrameMAP(VideoWrapper):
@@ -189,12 +188,9 @@ class VideoMAP(VideoWrapper):
 
 class VideoAccuracy(VideoWrapper):
     def update_text(self, target):
-        self.text += '{:^5} | {} | {}\n'.format(
+        self.text += '{:^5} | {:^20}\n'.format(
             target['target'][0],
-            np.array2string(self.metric.labels[-1].numpy(), separator=', ')[1:-1],
-            np.array2string(self.metric.predictions[-1].numpy(),
-                            separator=', ',
-                            formatter={'float_kind': lambda x: '%.5f' % x})[1:-1])
+            np.array2string(self.metric.labels[-1].numpy(), separator=', ')[1:-1])
 
 
 def per_class_accuracy(predictions, labels):

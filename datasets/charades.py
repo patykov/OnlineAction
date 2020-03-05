@@ -73,24 +73,17 @@ class Charades(VideoDataset):
                 for line in file:
                     class_match = re.match('(\d*) (.*) (\d*)', line)
                     if class_match:
-                        old_class_id, new_class_id, new_class_name = class_match.groups()
+                        old_class_id, new_class_id, _ = class_match.groups()
                     class_to_verb[int(old_class_id)] = int(new_class_id)
 
             # Set new num_classes
             self.num_classes = len(np.unique(list(class_to_verb.values())))
 
             # Select classes from gt
-            new_video_list = []
-            for actions, vid in self.video_list:
-                new_actions = []
+            for actions, _ in self.video_list:
                 for a in actions:
-                    if a['class'] in class_to_verb:
-                        old_value = a['class']
-                        a['class'] = class_to_verb[old_value]
-                        new_actions.append(a)
-                new_video_list.append([new_actions, vid])
-
-            self.video_list = new_video_list
+                    old_value = a['class']
+                    a['class'] = class_to_verb[old_value]
 
     def _get_train_target(self, record, offsets):
         """

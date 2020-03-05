@@ -5,7 +5,6 @@ import time
 
 import horovod.torch as hvd
 import torch.nn.parallel
-from torch.nn import AvgPool1d
 from tqdm import tqdm
 
 import metrics.metrics as m
@@ -24,11 +23,10 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     RESULTS = logging.getLogger(name='results')
 
     # Loading data
-    data_sampler = get_distributed_sampler(dataset, list_file=map_file, root_path=root_data_path,
-                                           subset=subset, mode=mode,
-                                           sample_frames=sample_frames,
-                                           selected_classes_file=selected_classes_file,
-                                           verb_classes_file=verb_classes_file)
+    data_sampler = get_distributed_sampler(
+        dataset, list_file=map_file, root_path=root_data_path, subset=subset, mode=mode,
+        sample_frames=sample_frames, selected_classes_file=selected_classes_file,
+        verb_classes_file=verb_classes_file)
     video_dataset = data_sampler.dataset
 
     total_per_gpu = data_sampler.num_samples
@@ -45,33 +43,11 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
                       pretrained_weights=pretrained_weights,
                       num_classes=num_classes,
                       non_local=baseline,
-                      fullyConv=True if mode == 'fullyConv' else False,
+                      fullyConv=False if 'centerCrop' in mode else True,
                       frame_num=sample_frames,
                       log_name='eval')
     model.eval()
     model_time = time.time()
-
-    if video_dataset.multi_label:
-
-        def frame_output(outputs):
-            avg_pool = AvgPool1d(3)
-
-            outputs = torch.sigmoid(outputs)
-            data = outputs.view(1, -1, num_classes).contiguous()
-            data = data.permute(0, 2, 1).contiguous()
-
-            if '3crops' in mode:
-                # 3crops transform takes 3 random crops of each clip
-                data = avg_pool(data)
-            video_data = data.view(-1, num_classes).contiguous()
-
-            return video_data
-
-    else:
-        softmax = torch.nn.Softmax(dim=1)
-
-        def frame_output(outputs):
-            return softmax(outputs)
 
     # Horovod: broadcast parameters.
     hvd.broadcast_parameters(model.state_dict(), root_rank=0)
@@ -89,7 +65,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
         count = 0
         offset = 0
         total = data_sampler.total_size
-        with tqdm(desc='{} videos of {} total'.format(total_per_gpu, total), total=total_per_gpu,
+        with tqdm(desc='({}/{}) videos'.format(total_per_gpu, total), total=total_per_gpu,
                   leave=True, maxinterval=3600) as t:
 
             for i, vid in enumerate(data_sampler, start=1):
@@ -97,47 +73,46 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
                 # measure data loading time
                 data_time.update(time.time() - end)
 
-                video_stream = get_dataloader((dataset, 'stream'), video_path=video_path,
-                                              label=label, batch_size=None, num_classes=num_classes,
-                                              mode=mode, distributed=False, num_workers=0)
-
+                video_stream = get_dataloader(
+                    (dataset, 'stream'), video_path=video_path, label=label, batch_size=None,
+                    num_classes=num_classes, mode=mode, distributed=False, num_workers=0)
                 for j, (chunk_data, chunk_target) in enumerate(video_stream):
                     chunk_data = chunk_data.to('cuda')
                     # print('Got frames - {}'.format(j))
                     output = model(chunk_data)
 
                     video_metric.add(output, {
-                        'target': chunk_target['target'],
-                        'video_path': chunk_target['video_path']
-                    },
-                        synchronize=((i == data_sampler.num_samples)
-                                     and (j == len(video_stream) - 1)))
+                            'target': chunk_target['target'],
+                            'video_path': chunk_target['video_path']
+                        },
+                        synchronize=(
+                            (i == data_sampler.num_samples) and
+                            (j == len(video_stream) - 1)))
 
                 # measure elapsed time
                 batch_time.update(time.time() - end)
                 end = time.time()
 
                 count += 1
-                if (count - offset) >= total // 100:  # Update progressbar every 1%
+                if (count - offset) >= total_per_gpu // 10:  # Update progressbar every 10%
                     t.update(count - offset)
                     offset = count
 
                     # Saving results and log info
                     LOG.info(
                         'Video {}/{} ({:.02%}) | '
-                        'Time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
-                        'Data {data_time.val:.3f}s ({data_time.avg:.3f}s avg.) | '
+                        'Per GPU batch time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
+                        'Per GPU data time {data_time.val:.3f}s ({data_time.avg:.3f}s avg.) | '
                         '{metric.name}: {metric}'.format(
                             i, total_per_gpu, i / total_per_gpu, batch_time=batch_time,
                             data_time=data_time, metric=video_metric.metric))
                     RESULTS.debug(video_metric.to_text())
-                    # video_metric.reset()
 
-                # Trying to empty gpu cache
-                torch.cuda.empty_cache()
+            # Trying to empty gpu cache
+            torch.cuda.empty_cache()
 
     RESULTS.debug(video_metric.to_text())
-    # LOG.info('\n{metric.name}: {metric}'.format(metric=video_metric.metric))
+    LOG.info('\n{metric.name}: {metric}'.format(metric=video_metric.metric))
 
 
 def main():
@@ -151,8 +126,8 @@ def main():
     parser.add_argument('--arch', type=str, default='nonlocal_net')
     parser.add_argument('--backbone', type=str, default='resnet50')
     parser.add_argument('--baseline', action='store_false')
-    parser.add_argument('--mode', type=str, default='fullyConv')
-    parser.add_argument('--dataset', type=str, default='kinetics')
+    parser.add_argument('--mode', type=str, default='stream_centerCrop')
+    parser.add_argument('--dataset', type=str, default='kinetics', choices=['kinetics', 'charades'])
     parser.add_argument('--sample_frames', type=int, default=8,
                         help='Number of frames to be sampled in the input.')
     parser.add_argument('--subset', action='store_true')
@@ -164,8 +139,6 @@ def main():
                         help='Full path to the file with the classes to verbs mapping')
 
     args = parser.parse_args()
-    assert args.dataset in ['kinetics', 'charades'], (
-        'Dataset {} not available. Choose between "kinetics" or "charades".'.format(args.dataset))
 
     torch.multiprocessing.set_sharing_strategy('file_system')
 

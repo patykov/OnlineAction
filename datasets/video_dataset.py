@@ -17,9 +17,11 @@ class VideoDataset(data.Dataset):
             with its annotations.
         sample_frames: Number of frames used in the input (temporal dimension).
         transform: A function that takes in an PIL image and returns a transformed version.
-        mode: Set the dataset mode as 'train', 'val', 'test'.
+        mode: Set the dataset mode as 'train', 'val' or 'stream'.
         test_clips: Number of clips to be evenly sampled from each full-length video for evaluation.
     """
+    input_mean = [0.485, 0.456, 0.406]
+    input_std = [0.229, 0.224, 0.225]
     num_classes = None
     multi_label = None
 
@@ -127,7 +129,7 @@ class VideoDataset(data.Dataset):
             if 'stream' in self.mode:
                 return os.path.join(self.root_path, video_path), label
 
-            elif 'video' in self.mode:
+            elif 'video' in self.mode:  # test
                 segment_indices = self._get_test_indices(record)
                 target = self._get_test_target(record)
 
@@ -151,7 +153,7 @@ class VideoDataset(data.Dataset):
             indices : List of image indices to be loaded from a video.
         Returns:
             data : Numpy array with the loaded and transformed data from the video.
-            """
+        """
         uniq_id = np.unique(indices)
         uniq_imgs = record.get_frames(uniq_id)
 
@@ -181,7 +183,7 @@ class VideoDataset(data.Dataset):
                 t.GroupRandomHorizontalFlip()
             ])
 
-        elif 'centerCrop' in self.mode:
+        elif 'centerCrop' in self.mode or self.mode == 'val':
             cropping = torchvision.transforms.Compose([
                 t.GroupResize(256),
                 t.GroupCenterCrop(224)
@@ -199,13 +201,13 @@ class VideoDataset(data.Dataset):
             ])
 
         else:
-            raise ValueError(("Mode {} does not exist. Choose between: stream, train or "
+            raise ValueError(("Mode {} does not exist. Choose between: train, val or "
                               "[stream/video]_[centerCrop/fullyConv/3crops].").format(self.mode))
 
         transforms = torchvision.transforms.Compose([
             cropping,
             t.GroupToTensorStack(),
-            t.GroupNormalize()
+            t.GroupNormalize(mean=self.input_mean, std=self.input_std)
         ])
 
         return transforms
