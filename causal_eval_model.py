@@ -23,11 +23,10 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     RESULTS = logging.getLogger(name='results')
 
     # Loading data
-    data_sampler = get_distributed_sampler(dataset, list_file=map_file, root_path=root_data_path,
-                                           subset=subset, mode=mode,
-                                           sample_frames=sample_frames,
-                                           selected_classes_file=selected_classes_file,
-                                           verb_classes_file=verb_classes_file)
+    data_sampler = get_distributed_sampler(
+        dataset, list_file=map_file, root_path=root_data_path, subset=subset, mode=mode,
+        sample_frames=sample_frames, selected_classes_file=selected_classes_file,
+        verb_classes_file=verb_classes_file)
     video_dataset = data_sampler.dataset
     total_per_gpu = data_sampler.num_samples
     num_classes = video_dataset.num_classes
@@ -65,37 +64,35 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
         count = 0
         offset = 0
         total = data_sampler.total_size
-        with tqdm(desc='({}/{}) videos'.format(total_per_gpu, total),
-                  total=total_per_gpu,
-                  leave=True,
-                  maxinterval=3600) as t:
+        with tqdm(desc='({}/{}) videos'.format(total_per_gpu, total), total=total_per_gpu,
+                  leave=True, maxinterval=3600) as t:
 
             for i, vid in enumerate(data_sampler, start=1):
                 video_path, label = video_dataset[vid]
                 # measure data loading time
                 data_time.update(time.time() - end)
 
-                video_stream = get_dataloader((dataset, 'stream'), video_path=video_path,
-                                              label=label, batch_size=None, num_classes=num_classes,
-                                              mode=mode, distributed=False, num_workers=0)
-
+                video_stream = get_dataloader(
+                    (dataset, 'stream'), video_path=video_path, label=label, batch_size=None,
+                    num_classes=num_classes, mode=mode, distributed=False, num_workers=0)
                 for j, (chunk_data, chunk_target) in enumerate(video_stream):
                     chunk_data = chunk_data.to('cuda')
                     output = model(chunk_data)
 
                     video_metric.add(output, {
-                        'target': chunk_target['target'],
-                        'video_path': chunk_target['video_path']
-                    },
-                        synchronize=((i == data_sampler.num_samples)
-                                     and (j == len(video_stream) - 1)))
+                            'target': chunk_target['target'],
+                            'video_path': chunk_target['video_path']
+                        },
+                        synchronize=(
+                            (i == data_sampler.num_samples) and
+                            (j == len(video_stream) - 1)))
 
                 # measure elapsed time
                 batch_time.update(time.time() - end)
                 end = time.time()
 
                 count += 1
-                if (count - offset) >= total // 100:  # Update progressbar every 1%
+                if (count - offset) >= total_per_gpu // 10:  # Update progressbar every 10%
                     t.update(count - offset)
                     offset = count
 
@@ -104,19 +101,16 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
                         'Video {}/{} ({:.02%}) | '
                         'Per GPU batch time {batch_time.val:.3f}s ({batch_time.avg:.3f}s avg.) | '
                         'Per GPU data time {data_time.val:.3f}s ({data_time.avg:.3f}s avg.) | '
-                        'Per GPU {metric.name}: {metric}'.format(i,
-                                                                 total_per_gpu,
-                                                                 i / total_per_gpu,
-                                                                 batch_time=batch_time,
-                                                                 data_time=data_time,
-                                                                 metric=video_metric.metric))
+                        '{metric.name}: {metric}'.format(
+                            i, total_per_gpu, i / total_per_gpu, batch_time=batch_time,
+                            data_time=data_time, metric=video_metric.metric))
                     RESULTS.debug(video_metric.to_text())
 
-                # Trying to empty gpu cache
-                torch.cuda.empty_cache()
+            # Trying to empty gpu cache
+            torch.cuda.empty_cache()
 
     RESULTS.debug(video_metric.to_text())
-    # LOG.info('\n{metric.name}: {metric}'.format(metric=video_metric.metric))
+    LOG.info('\n{metric.name}: {metric}'.format(metric=video_metric.metric))
 
 
 def main():
@@ -130,30 +124,19 @@ def main():
     parser.add_argument('--arch', type=str, default='nonlocal_net')
     parser.add_argument('--backbone', type=str, default='resnet50')
     parser.add_argument('--baseline', action='store_false')
-    parser.add_argument('--mode', type=str, default='fullyConv')
-    parser.add_argument('--dataset', type=str, default='kinetics')
-    parser.add_argument('--sample_frames',
-                        type=int,
-                        default=8,
+    parser.add_argument('--mode', type=str, default='stream_centerCrop')
+    parser.add_argument('--dataset', type=str, default='kinetics', choices=['kinetics', 'charades'])
+    parser.add_argument('--sample_frames', type=int, default=8,
                         help='Number of frames to be sampled in the input.')
     parser.add_argument('--subset', action='store_true')
-    parser.add_argument('--workers',
-                        default=4,
-                        type=int,
+    parser.add_argument('--workers', default=4, type=int,
                         help='Number of workers on the data loading subprocess.')
-    parser.add_argument('--selected_classes_file',
-                        type=str,
-                        default=None,
+    parser.add_argument('--selected_classes_file', type=str, default=None,
                         help='Full path to the file with the classes to be used in training')
-    parser.add_argument('--verb_classes_file',
-                        type=str,
-                        default=None,
+    parser.add_argument('--verb_classes_file', type=str, default=None,
                         help='Full path to the file with the classes to verbs mapping')
 
     args = parser.parse_args()
-    assert args.dataset in [
-        'kinetics', 'charades'
-    ], ('Dataset {} not available. Choose between "kinetics" or "charades".'.format(args.dataset))
 
     torch.multiprocessing.set_sharing_strategy('file_system')
 

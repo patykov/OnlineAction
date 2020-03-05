@@ -67,7 +67,6 @@ class TopK(Metric):
         super().__init__('/'.join(['top{}'.format(ki) for ki in k]))
         self.k = k
         self.maxk = max(k)
-        self.labels = []
         self.softmax = torch.nn.Softmax(dim=1)
 
     def reset(self):
@@ -108,7 +107,7 @@ class mAP(Metric):
 
     def _add(self, output, target, synchronize=True, apply_func=True):
         if apply_func:
-            output = self.sigmoid(output)
+            output = torch.sigmoid(output)
 
         if synchronize:
             self.targets.append(hvd.allgather(target.cpu(), name=self.name + '_target'))
@@ -159,15 +158,11 @@ class VideoPerFrameAccuracy(VideoWrapper):
             label = self.metric.labels[-1][img_id].numpy()
             pred = self.metric.predictions[-1][img_id].numpy()
 
-            self.text += '{} | {} | {} | {}\n'.format(target['video_path'][img_id],
-                                                      target['target'][img_id].item(),
-                                                      np.array2string(label, separator=' ')[1:-1],
-                                                      np.array2string(
-                                                          pred,
-                                                          separator=' ',
-                                                          formatter={
-                                                              'float_kind': lambda x: '%.5f' % x
-                                                              })[1:-1].replace('\n', '')[1:-1])
+            self.text += '{} | {} | {} | {}\n'.format(
+                target['video_path'][img_id],
+                target['target'][img_id].item(),
+                np.array2string(label, separator=' ')[1:-1],
+                np.array2string(pred, separator=' ')[1:-1])
 
 
 class VideoPerFrameMAP(VideoWrapper):
@@ -193,12 +188,9 @@ class VideoMAP(VideoWrapper):
 
 class VideoAccuracy(VideoWrapper):
     def update_text(self, target):
-        self.text += '{:^5} | {} | {}\n'.format(
+        self.text += '{:^5} | {:^20}\n'.format(
             target['target'][0],
-            np.array2string(self.metric.labels[-1].numpy(), separator=', ')[1:-1],
-            np.array2string(self.metric.predictions[-1].numpy(),
-                            separator=', ',
-                            formatter={'float_kind': lambda x: '%.5f' % x})[1:-1])
+            np.array2string(self.metric.labels[-1].numpy(), separator=', ')[1:-1])
 
 
 def per_class_accuracy(predictions, labels):

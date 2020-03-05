@@ -7,7 +7,7 @@ from datasets.video_record import VideoRecord
 class VideoStream(VideoDataset):
 
     def __init__(self, video_path, label, num_classes=157, sample_frames=32, transform=None,
-                 mode='centerCrop', clip_length=3):
+                 mode='stream_centerCrop', clip_length=3):
         self.record = VideoRecord(video_path, label)
         self.sample_frames = sample_frames
         self.clip_length = clip_length  # in seconds
@@ -26,7 +26,8 @@ class VideoStream(VideoDataset):
 
         # It's done here to better explore single image loading
         imgs_per_batch = 10
-        self.internal_batch_size = int(imgs_per_batch/3) if 'video' in self.mode else imgs_per_batch
+        self.internal_batch_size = (
+            imgs_per_batch if 'centerCrop' in self.mode else int(imgs_per_batch/3))
 
         self.chunk_target = divide_chunks(self.target['target'], self.internal_batch_size)
         self.chunk_labels = divide_chunks(self.target['video_path'], self.internal_batch_size)

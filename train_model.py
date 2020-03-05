@@ -114,7 +114,7 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
                                   distributed=True, selected_classes_file=selected_classes_file,
                                   verb_classes_file=verb_classes_file)
     val_loader = get_dataloader(dataset, list_file=val_file, root_path=val_data,
-                                mode='val_centerCrop', sample_frames=sample_frames, subset=subset,
+                                mode='val', sample_frames=sample_frames, subset=subset,
                                 batch_size=config['batch_size'], num_workers=num_workers,
                                 distributed=True, selected_classes_file=selected_classes_file,
                                 verb_classes_file=verb_classes_file)
@@ -128,7 +128,7 @@ def train(config_json, train_file, val_file, train_data, val_data, sample_frames
 
     # Model
     model = get_model(arch=arch, backbone=backbone, pretrained_weights=pretrained_weights,
-                      num_classes=num_classes, non_local=config['nonlocal'],
+                      fullyConv=False, num_classes=num_classes, non_local=config['nonlocal'],
                       frame_num=sample_frames, fine_tune=fine_tune, log_name='training')
 
     # Epochs, optimizer, scheduler, criterion
