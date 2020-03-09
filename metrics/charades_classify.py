@@ -7,7 +7,7 @@ from tqdm import tqdm
 from datasets.charades_stream import CharadesStream
 
 
-def charades_v1_classify(cls_file, gt_path, per_frame=False, calibrated=False):
+def charades_v1_classify(cls_file, gt_path, per_frame=False):
     """
         Evaluate charades dataset for multi-label classification per video.
         Adapted from Charades_v1_classify.m code from charades dataset providers.
@@ -23,7 +23,6 @@ def charades_v1_classify(cls_file, gt_path, per_frame=False, calibrated=False):
 
     """
     gt_ids, gt_classes = read_file(gt_path) if per_frame else load_charades(gt_path)
-    w_array = get_w_array(gt_classes) if calibrated else None
     n_test = len(gt_ids)
 
     # Load test scores
@@ -45,16 +44,18 @@ def charades_v1_classify(cls_file, gt_path, per_frame=False, calibrated=False):
     elif n_test < n:
         raise RuntimeError('There are {} extra items!'.format(n-n_test))
 
-    mAP, wAP, ap, _, _ = charades_map(np.array(test_scores), np.array(gt_classes), w_array)
+    mAP, wAP, ap, _, _, cAP = charades_map(np.array(test_scores), np.array(gt_classes))
 
-    return mAP, wAP, ap
+    return mAP, wAP, ap, cAP
 
 
-def map_func(submission_array, gt_array, w_array):
-    """ Returns mAP, weighted mAP, AP array, precisions and recall"""
+def map_func(submission_array, gt_array):
+    """ Returns mAP, weighted mAP, AP array, precisions, recall and calibrated AP"""
     m_aps = []
+    c_aps = []
     a_prec = np.zeros(submission_array.shape)
     a_recall = np.zeros(submission_array.shape)
+    n_samples = submission_array.shape[0]
     n_classes = submission_array.shape[1]
     for oc_i in range(n_classes):
         sorted_idxs = np.argsort(-submission_array[:, oc_i])
@@ -66,24 +67,33 @@ def map_func(submission_array, gt_array, w_array):
 
         t_pcs = np.cumsum(tp)
         f_pcs = np.cumsum(fp)
-
-        w_t_pcs = t_pcs * w_array[oc_i]
-        prec = w_t_pcs / (f_pcs + w_t_pcs).astype(float)
+        prec = t_pcs / (f_pcs+t_pcs).astype(float)
         recall = t_pcs / n_gt.astype(float)
+
+        # Calibrated prec
+        w = (n_samples - n_gt) / float(n_gt)
+        c_t_pcs = t_pcs * w
+        c_prec = c_t_pcs / (f_pcs + c_t_pcs).astype(float)
+
         avg_prec = 0
+        c_avg_prec = 0
         for i in range(submission_array.shape[0]):
             if tp[i]:
                 avg_prec += prec[i]
+                c_avg_prec += c_prec[i]
         m_aps.append(avg_prec / n_pos.astype(float))
+        c_aps.append(c_avg_prec / n_pos.astype(float))
         a_prec[:, oc_i] = prec
         a_recall[:, oc_i] = recall
     m_aps = np.array(m_aps)
+    c_aps = np.array(c_aps)
     m_ap = np.nanmean(m_aps)
+    c_ap = np.nanmean(c_aps)
     w_ap = np.nansum(m_aps * gt_array.sum(axis=0) / gt_array.sum().astype(float))
-    return m_ap, w_ap, m_aps, a_prec, a_recall
+    return m_ap, w_ap, m_aps, a_prec, a_recall, c_ap
 
 
-def charades_map(submission_array, gt_array, w_array=None):
+def charades_map(submission_array, gt_array):
     """
     Approximate version of the charades evaluation function
     For precise numbers, use the submission file with the official matlab script
@@ -92,10 +102,8 @@ def charades_map(submission_array, gt_array, w_array=None):
     fix = submission_array.copy()
     empty = np.sum(gt_array, axis=1) == 0
     fix[empty, :] = np.NINF
-    if w_array is None:
-        w_array = np.ones(submission_array.shape[1])
 
-    return map_func(fix, gt_array, w_array)
+    return map_func(fix, gt_array)
 
 
 def get_thresholds(test_scores, gt_classes):
@@ -113,8 +121,7 @@ def read_file(file_path):
     with open(file_path, 'r') as file:
         text = sorted(file.readlines())
 
-    split_text = [t.replace('\n', '').split(' ') for t in text if t != '\n']
-    split_text = [[t for t in st if t != ''] for st in split_text]
+    split_text = [t.strip().split(' ') for t in text]
     v_ids = [st[0] for st in split_text]
     v_scores = [list(map(float, st[1:])) for st in split_text]
 
@@ -197,16 +204,3 @@ def save(log_file, gt_file, output_file, per_frame=False, calibrated=False,
         file.write('\n\n{:5} | {:^5}\n'.format('class', '{}AP'.format('c' if calibrated else '')))
         for i, ap in enumerate(ap):
             file.write('{:5} | {:.02%}\n'.format(i, ap))
-
-
-def get_w_array(targets):
-    targets = np.array(targets, dtype='int')
-    num_classes = targets.shape[1]
-    pos_count = np.zeros(num_classes)
-    neg_count = np.zeros(num_classes)
-
-    sum_targets = targets.sum(axis=0)
-    pos_count = sum_targets
-    neg_count = (np.ones(num_classes)*len(targets) - sum_targets)
-
-    return neg_count/pos_count

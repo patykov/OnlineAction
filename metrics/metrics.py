@@ -116,7 +116,7 @@ class mAP(Metric):
             self.predictions.append(output.cpu())
 
     def _get_value(self):
-        mAP, _, _, _, _ = charades_map(np.vstack(self.predictions), np.vstack(self.targets))
+        mAP, _, _, _, _, _ = charades_map(np.vstack(self.predictions), np.vstack(self.targets))
         return mAP
 
     def __repr__(self):
