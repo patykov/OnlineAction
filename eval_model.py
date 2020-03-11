@@ -5,7 +5,7 @@ import time
 
 import horovod.torch as hvd
 import torch.nn.parallel
-from torch.nn import AvgPool1d, MaxPool1d
+# from torch.nn import AvgPool1d, MaxPool1d
 
 import metrics.metrics as m
 from datasets.get import get_dataloader
@@ -44,29 +44,29 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     model.eval()
     model_time = time.time()
 
-    if data_loader.dataset.multi_label:
+    # if data_loader.dataset.multi_label:
 
-        def video_output(outputs):
-            max_pool = MaxPool1d(data_loader.dataset.test_clips)
-            avg_pool = AvgPool1d(3)
+    #     def video_output(outputs):
+    #         max_pool = MaxPool1d(data_loader.dataset.test_clips)
+    #         avg_pool = AvgPool1d(3)
 
-            outputs = torch.sigmoid(outputs)
-            data = outputs.view(1, -1, num_classes).contiguous()
-            data = data.permute(0, 2, 1).contiguous()
+    #         outputs = torch.sigmoid(outputs)
+    #         data = outputs.view(1, -1, num_classes).contiguous()
+    #         data = data.permute(0, 2, 1).contiguous()
 
-            data = max_pool(data)
-            if '3crops' in mode:
-                # 3crops transform takes 3 random crops of each clip
-                data = avg_pool(data)
-            video_data = data.view(-1, num_classes).contiguous()
+    #         data = max_pool(data)
+    #         if '3crops' in mode:
+    #             # 3crops transform takes 3 random crops of each clip
+    #             data = avg_pool(data)
+    #         video_data = data.view(-1, num_classes).contiguous()
 
-            return video_data
+    #         return video_data
 
-    else:
-        softmax = torch.nn.Softmax(dim=1)
+    # else:
+    #     softmax = torch.nn.Softmax(dim=1)
 
-        def video_output(outputs):
-            return softmax(outputs).mean(0)
+    #     def video_output(outputs):
+    #         return softmax(outputs).mean(0)
 
     # Horovod: broadcast parameters.
     hvd.broadcast_parameters(model.state_dict(), root_rank=0)
@@ -74,8 +74,9 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     LOG.info('Loading model took {:.3f}s'.format(model_time - data_time))
     LOG.debug(model)
 
-    video_metric = m.VideoMAP(m.mAP()) if data_loader.dataset.multi_label else m.VideoAccuracy(
-        m.TopK(k=(1, 5)))
+    video_metric = m.VideoMAP(
+        m.mAP(video=True)) if data_loader.dataset.multi_label else m.VideoAccuracy(
+        m.TopK(k=(1, 5), video=True))
     batch_time = m.AverageMeter('batch_time')
     data_time = m.AverageMeter('data_time')
     with torch.no_grad():
@@ -87,7 +88,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
 
             data = data.squeeze(0).cuda()
             output = model(data).cpu()
-            video_metric.add(video_output(output), label, apply_func=False)
+            video_metric.add(output, label)
 
             # measure elapsed time
             batch_time.update(time.time() - end)

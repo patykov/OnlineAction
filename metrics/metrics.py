@@ -62,30 +62,38 @@ class Metric:
 
 
 class TopK(Metric):
-    def __init__(self, k=(1, )):
+    def __init__(self, k=(1, ), video=False):
         super().__init__('/'.join(['top{}'.format(ki) for ki in k]))
         self.k = k
         self.maxk = max(k)
-        self.softmax = torch.nn.Softmax(dim=1)
+        self.video = video
+        self.softmax2d = torch.nn.Softmax2d()
 
     def reset(self):
         super().reset()
         self.labels = []
 
-    def _add(self, output, target, synchronize=True, apply_func=True):
-        if apply_func:
-            output = self.softmax(output)
-        topk_pred, topk_labels = torch.topk(output, self.maxk)
+    def _add(self, output, target, synchronize=True):
+        if output.ndim > 2:
+            output = self.softmax2d(output)
+            output = output.mean(2).mean(2)
+        else:
+            output = output.softmax(dim=1)
+
+        if self.video:
+            output = output.mean(0)
+
+        _, topk_labels = torch.topk(output, self.maxk)
 
         if synchronize:
             self.targets.append(
                 hvd.allgather(torch.stack([target.cpu()], dim=1), name=self.name + '_target'))
             self.labels.append(hvd.allgather(topk_labels.cpu(), name=self.name + '_label'))
-            self.predictions.append(hvd.allgather(topk_pred.cpu(), name=self.name + '_pred'))
+            self.predictions.append(hvd.allgather(output.cpu(), name=self.name + '_pred'))
         else:
             self.targets.append(torch.stack([target.cpu()], dim=1))
             self.labels.append(topk_labels.cpu())
-            self.predictions.append(topk_pred.cpu())
+            self.predictions.append(output.cpu())
 
     def _get_value(self):
         labels = np.vstack(self.labels)
@@ -101,12 +109,18 @@ class TopK(Metric):
 
 
 class mAP(Metric):
-    def __init__(self):
+    def __init__(self, video=False):
         super().__init__('mAP')
+        self.video = video
 
-    def _add(self, output, target, synchronize=True, apply_func=True):
-        if apply_func:
-            output = torch.sigmoid(output)
+    def _add(self, output, target, video, synchronize=True):
+        output = torch.sigmoid(output)
+
+        if output.ndim > 2:
+            output = output.mean(2).mean(2)
+
+        if self.video:
+            output = output.max(0)
 
         if synchronize:
             self.targets.append(hvd.allgather(target.cpu(), name=self.name + '_target'))
@@ -155,13 +169,11 @@ class VideoPerFrameAccuracy(VideoWrapper):
     def update_text(self, target):
         batch_size = target['target'].shape[0]
         for img_id in range(batch_size):
-            label = self.metric.labels[-1][img_id].numpy()
             pred = self.metric.predictions[-1][img_id].numpy()
 
-            self.text += '{} | {} | {} | {}\n'.format(
+            self.text += '{} | {} | {} \n'.format(
                 target['video_path'][img_id],
                 target['target'][img_id].item(),
-                np.array2string(label, separator=' ')[1:-1],
                 np.array2string(pred, separator=' ')[1:-1])
 
 

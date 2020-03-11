@@ -56,7 +56,8 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     LOG.debug(model)
 
     video_metric = m.VideoPerFrameMAP(
-        m.mAP()) if data_sampler.dataset.multi_label else m.VideoPerFrameAccuracy(m.TopK(k=(1, 5)))
+        m.mAP(video=False)) if data_sampler.dataset.multi_label else m.VideoPerFrameAccuracy(
+        m.TopK(k=(1, 5), video=False))
     batch_time = m.AverageMeter('batch_time', synchronize=False)
     data_time = m.AverageMeter('data_time', synchronize=False)
     with torch.no_grad():
@@ -78,7 +79,6 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
                     num_classes=num_classes, mode=mode, distributed=False, num_workers=0)
                 for j, (chunk_data, chunk_target) in enumerate(video_stream):
                     chunk_data = chunk_data.to('cuda')
-                    # print('Got frames - {}'.format(j))
                     output = model(chunk_data)
 
                     video_metric.add(output, {
