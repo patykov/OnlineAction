@@ -57,11 +57,11 @@ class Bottleneck(nn.Module):
 class I3DResNet(nn.Module):
 
     def __init__(self, block, layers, temp_conv, nonlocal_block, frame_num=32, num_classes=400,
-                 non_local=True):
+                 non_local=True, multi_label=False):
         self.inplanes = 64
         self.non_local = non_local
         super(I3DResNet, self).__init__()
-        temp_stride = 2 if frame_num == 32 else 1
+        temp_stride = 1  # 2 if frame_num == 32 else 1
         self.conv1 = nn.Conv3d(3, 64,
                                kernel_size=(5, 7, 7),
                                stride=(temp_stride, 2, 2),
@@ -87,7 +87,8 @@ class I3DResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
                                        temp_conv=temp_conv[3],
                                        nonlocal_block=nonlocal_block[3])
-        self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
+        # self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
+        self.avgpool = nn.AvgPool3d((frame_num//2, 7, 7))
         self.avgdrop = nn.Dropout(0.5)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         self.fullyConv = False
@@ -129,6 +130,7 @@ class I3DResNet(nn.Module):
         self.fullyConv = True
 
     def forward(self, x):
+        # import pdb; pdb.set_trace()
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -144,7 +146,7 @@ class I3DResNet(nn.Module):
 
         if self.fullyConv:
             x = self.conv1x1(x)
-            x = x.mean(4).mean(3).mean(2)
+            x = x.squeeze(2)
         else:
             x = x.view(x.size(0), -1)
             x = self.avgdrop(x)
