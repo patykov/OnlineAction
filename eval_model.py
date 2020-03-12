@@ -15,7 +15,7 @@ from utils import setup_logger
 torch.backends.cudnn.benchmarks = True
 
 
-def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline, mode, dataset,
+def eval(map_file, root_data_path, pretrained_weights, arch, backbone, non_local, mode, dataset,
          sample_frames, workers, selected_classes_file=None, verb_classes_file=None):
     start_time = time.time()
 
@@ -39,7 +39,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
     # Loading model
     model = get_model(arch=arch, backbone=backbone, pretrained_weights=pretrained_weights,
                       fullyConv=False if 'centerCrop' in mode else True,
-                      num_classes=num_classes, non_local=baseline,
+                      num_classes=num_classes, non_local=non_local,
                       frame_num=sample_frames, log_name='eval')
     model.eval()
     model_time = time.time()
@@ -117,7 +117,7 @@ def main():
     parser.add_argument('--outputdir', help='Output directory for logs and results.', default=None)
     parser.add_argument('--arch', type=str, default='nonlocal_net')
     parser.add_argument('--backbone', type=str, default='resnet50')
-    parser.add_argument('--baseline', action='store_false')
+    parser.add_argument('--non_local', action='store_true')
     parser.add_argument('--mode', type=str, default='video_centerCrop',
                         choices=['video_centerCrop', 'video_fullyConv', 'video_3crops', 'val'])
     parser.add_argument('--dataset', type=str, default='kinetics', choices=['kinetics', 'charades'])
@@ -151,7 +151,7 @@ def main():
         setup_logger('results', results_file)
 
     eval(args.map_file, args.root_data_path, args.pretrained_weights, args.arch, args.backbone,
-         args.baseline, args.mode, args.dataset, args.sample_frames, args.workers,
+         args.non_local, args.mode, args.dataset, args.sample_frames, args.workers,
          args.selected_classes_file, args.verb_classes_file)
 
 

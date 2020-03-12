@@ -15,7 +15,7 @@ from utils import setup_logger
 torch.backends.cudnn.benchmarks = True
 
 
-def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline, mode, subset,
+def eval(map_file, root_data_path, pretrained_weights, arch, backbone, non_local, mode, subset,
          dataset, sample_frames, workers, selected_classes_file=None, verb_classes_file=None):
     start_time = time.time()
 
@@ -42,7 +42,7 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, baseline,
                       backbone=backbone,
                       pretrained_weights=pretrained_weights,
                       num_classes=num_classes,
-                      non_local=baseline,
+                      non_local=non_local,
                       fullyConv=False if 'centerCrop' in mode else True,
                       frame_num=sample_frames,
                       log_name='eval')
@@ -125,7 +125,7 @@ def main():
     parser.add_argument('--outputdir', help='Output directory for logs and results.', default=None)
     parser.add_argument('--arch', type=str, default='nonlocal_net')
     parser.add_argument('--backbone', type=str, default='resnet50')
-    parser.add_argument('--baseline', action='store_false')
+    parser.add_argument('--non_local', action='store_true')
     parser.add_argument('--mode', type=str, default='stream_centerCrop')
     parser.add_argument('--dataset', type=str, default='kinetics', choices=['kinetics', 'charades'])
     parser.add_argument('--sample_frames', type=int, default=8,
@@ -156,7 +156,7 @@ def main():
     setup_logger('results', base_name + '_{}.txt'.format(hvd.rank()))
 
     eval(args.map_file, args.root_data_path, args.pretrained_weights,
-         args.arch, args.backbone, args.baseline, args.mode, args.subset,
+         args.arch, args.backbone, args.non_local, args.mode, args.subset,
          args.dataset, args.sample_frames, args.workers,
          args.selected_classes_file, args.verb_classes_file)
 

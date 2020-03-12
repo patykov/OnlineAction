@@ -16,9 +16,9 @@ args = [
     '--dataset', 'kinetics',
     '--backbone', 'resnet50',
     '--arch', 'nonlocal_net',
-    '--mode', 'stream_fullyConv',
+    '--mode', 'stream_centerCrop',
     '--subset',
-    '--baseline'
+    # '--non_local'
 ]
 sys.argv.extend(args)
 

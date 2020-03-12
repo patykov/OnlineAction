@@ -10,13 +10,14 @@ args = [
     '--map_file', '/data/Datasets/Kinetics/400/Annotation/val_clips_256_list.txt',
     '--root_data_path', '/data/Datasets/Kinetics/400/val_clips_256',
     '--pretrained_weights', '/data/OnlineActionRecognition/models/pre-trained/' +
-                            'resnet50_nonlocal_i3d_kinetics_8x8.pth',
-    '--log_file', 'eval_nonlocal_kinetics_resnet50_8x8_video_centerCrop',
-    '--sample_frames', '8',
+                            'resnet50_nonlocal_i3d_kinetics_32x2.pth',
+    '--log_file', 'eval_nonlocal_kinetics_resnet50_32x2_video_centerCrop',
+    '--sample_frames', '32',
     '--dataset', 'kinetics',
     '--mode', 'video_centerCrop',
     '--backbone', 'resnet50',
-    '--arch', 'nonlocal_net'
+    '--arch', 'nonlocal_net',
+    '--non_local'
 
 ]
 sys.argv.extend(args)
