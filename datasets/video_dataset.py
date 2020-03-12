@@ -104,14 +104,12 @@ class VideoDataset(data.Dataset):
                                      record.num_frames - 1,
                                      self.test_clips,
                                      dtype=int)
-
         offsets = []
         for p in sample_end_pos:
             offsets.extend(
                 np.linspace(max(p - expanded_sample_length, 0),
                             p,
                             self.sample_frames,
-                            endpoint=True,
                             dtype=int))
 
         return offsets

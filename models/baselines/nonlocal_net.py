@@ -61,7 +61,7 @@ class I3DResNet(nn.Module):
         self.inplanes = 64
         self.non_local = non_local
         super(I3DResNet, self).__init__()
-        temp_stride = 1  # 2 if frame_num == 32 else 1
+        temp_stride = 2 if frame_num == 32 else 1
         self.conv1 = nn.Conv3d(3, 64,
                                kernel_size=(5, 7, 7),
                                stride=(temp_stride, 2, 2),
@@ -88,7 +88,7 @@ class I3DResNet(nn.Module):
                                        temp_conv=temp_conv[3],
                                        nonlocal_block=nonlocal_block[3])
         # self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
-        self.avgpool = nn.AvgPool3d((frame_num//2, 7, 7))
+        self.avgpool = nn.AvgPool3d((4, 7, 7), stride=1)
         self.avgdrop = nn.Dropout(0.5)
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         self.fullyConv = False
@@ -130,7 +130,6 @@ class I3DResNet(nn.Module):
         self.fullyConv = True
 
     def forward(self, x):
-        # import pdb; pdb.set_trace()
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -141,16 +140,19 @@ class I3DResNet(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-
+        print(x.shape)
         x = self.avgpool(x)
-
+        print(x.shape)
         if self.fullyConv:
             x = self.conv1x1(x)
             x = x.squeeze(2)
         else:
             x = x.view(x.size(0), -1)
+            print(x.shape)
             x = self.avgdrop(x)
+            print(x.shape)
             x = self.fc(x)
+            print(x.shape)
 
         return x
 

@@ -169,40 +169,41 @@ class VideoPerFrameAccuracy(VideoWrapper):
     def update_text(self, target):
         batch_size = target['target'].shape[0]
         for img_id in range(batch_size):
-            pred = self.metric.predictions[-1][img_id].numpy()
-
             self.text += '{} | {} | {} \n'.format(
                 target['video_path'][img_id],
                 target['target'][img_id].item(),
-                np.array2string(pred, separator=' ')[1:-1])
+                np.array2string(self.metric.predictions[-1][img_id].numpy(),
+                                separator=' ',
+                                precision=4,
+                                suppress_small=True)[1:-1])
 
 
 class VideoPerFrameMAP(VideoWrapper):
     def update_text(self, target):
         batch_size = target['target'].shape[0]
         for img_id in range(batch_size):
-            self.text += '{} {}\n'.format(
+            self.text += '{} {} \n'.format(
                 target['video_path'][img_id],
                 np.array2string(self.metric.predictions[-1][img_id].numpy(),
                                 separator=' ',
-                                formatter={'float_kind':
-                                           lambda x: '%.8f' % x})[1:-1].replace('\n', ''))
+                                precision=8)[1:-1])
 
 
 class VideoMAP(VideoWrapper):
     def update_text(self, target):
-        self.text += '{} {}\n'.format(
-            target['video_path'][0],
+        self.text += '{} {} \n'.format(
+            target['video_path'],
             np.array2string(self.metric.predictions[-1].numpy(),
                             separator=' ',
-                            formatter={'float_kind': lambda x: '%.8f' % x})[1:-1].replace('\n', ''))
+                            precision=8)[1:-1])
 
 
 class VideoAccuracy(VideoWrapper):
     def update_text(self, target):
-        self.text += '{:^5} | {:^20}\n'.format(
+        self.text += '{:^5} | {:^20} \n'.format(
             target['target'][0],
-            np.array2string(self.metric.labels[-1].numpy(), separator=', ')[1:-1])
+            np.array2string(self.metric.labels[-1].numpy(),
+                            separator=' ')[1:-1])
 
 
 def per_class_accuracy(predictions, labels):
