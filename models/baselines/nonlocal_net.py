@@ -140,19 +140,16 @@ class I3DResNet(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        print(x.shape)
+
         x = self.avgpool(x)
-        print(x.shape)
+
         if self.fullyConv:
             x = self.conv1x1(x)
             x = x.squeeze(2)
         else:
             x = x.view(x.size(0), -1)
-            print(x.shape)
             x = self.avgdrop(x)
-            print(x.shape)
             x = self.fc(x)
-            print(x.shape)
 
         return x
 

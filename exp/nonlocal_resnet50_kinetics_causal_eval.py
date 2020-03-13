@@ -16,7 +16,7 @@ args = [
     '--dataset', 'kinetics',
     '--backbone', 'resnet50',
     '--arch', 'nonlocal_net',
-    '--mode', 'stream_centerCrop',
+    '--mode', 'stream_fullyConv',
     '--subset',
     # '--non_local'
 ]

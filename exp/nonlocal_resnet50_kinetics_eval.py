@@ -18,7 +18,6 @@ args = [
     '--backbone', 'resnet50',
     '--arch', 'nonlocal_net',
     '--non_local'
-
 ]
 sys.argv.extend(args)
 

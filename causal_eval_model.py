@@ -75,8 +75,9 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, non_local
                 data_time.update(time.time() - end)
 
                 video_stream = get_dataloader(
-                    (dataset, 'stream'), video_path=video_path, label=label, batch_size=None,
-                    num_classes=num_classes, mode=mode, distributed=False, num_workers=0)
+                    (dataset, 'stream'), video_path=video_path, label=label,
+                    sample_frames=sample_frames, batch_size=None, num_classes=num_classes,
+                    mode=mode, distributed=False, num_workers=0)
                 for j, (chunk_data, chunk_target) in enumerate(video_stream):
                     chunk_data = chunk_data.to('cuda')
                     output = model(chunk_data)
