@@ -63,6 +63,58 @@ class Metric:
 
 class TopK(Metric):
     def __init__(self, k=(1, ), video=False):
+        self.k = k
+        self.maxk = max(k)
+        self.video = video
+        self.softmax2d = torch.nn.Softmax2d()
+        super().__init__('/'.join(['top{}'.format(ki) for ki in k]))
+
+    def reset(self):
+        super().reset()
+        self.labels = None
+        self.total = 0
+        self.topk_hit = [0 for i in self.k]
+
+    def _add(self, output, target, synchronize=True):
+        print(output.shape, target.shape)
+        if output.ndim > 2:
+            output = self.softmax2d(output)
+            output = output.mean(2).mean(2)
+        else:
+            output = output.softmax(dim=1)
+        print(output.shape, target.shape)
+
+        if self.video:
+            output = output.mean(0)
+
+        _, topk_labels = torch.topk(output, self.maxk)
+
+        print(target.shape, torch.stack([target.cpu()], dim=1).shape)
+
+        if synchronize:
+            self.targets = hvd.allgather(
+                target.unsqueeze(1).cpu(), name=self.name + '_target')
+            self.labels = hvd.allgather(topk_labels.cpu(), name=self.name + '_label')
+            self.predictions = hvd.allgather(output.cpu(), name=self.name + '_pred')
+        else:
+            self.targets = target.unsqueeze(1).cpu()
+            self.labels = topk_labels.cpu()
+            self.predictions = output.cpu()
+
+        self.total += self.targets.shape[0]
+        print(self.labels.shape)
+        for i, k in enumerate(self.k):
+            self.topk_hit[i] += torch.sum(self.targets == self.labels[:, :k])
+
+    def _get_value(self):
+        return self.topk_hit / self.total.astype(float)
+
+    def __repr__(self):
+        return '/'.join(['{:.02%}'.format(v) for v in [*self.value]])
+
+
+class PerClassTopK(Metric):
+    def __init__(self, k=(1, ), video=False):
         super().__init__('/'.join(['top{}'.format(ki) for ki in k]))
         self.k = k
         self.maxk = max(k)
@@ -113,7 +165,7 @@ class mAP(Metric):
         super().__init__('mAP')
         self.video = video
 
-    def _add(self, output, target, video, synchronize=True):
+    def _add(self, output, target, synchronize=True):
         output = torch.sigmoid(output)
 
         if output.ndim > 2:
@@ -172,6 +224,20 @@ class VideoPerFrameAccuracy(VideoWrapper):
             self.text += '{} | {} | {} \n'.format(
                 target['video_path'][img_id],
                 target['target'][img_id].item(),
+                np.array2string(self.metric.predictions[img_id].numpy(),
+                                separator=' ',
+                                precision=4,
+                                suppress_small=True)[1:-1])
+
+
+class VideoPerFramePerClassAccuracy(VideoWrapper):
+
+    def update_text(self, target):
+        batch_size = target['target'].shape[0]
+        for img_id in range(batch_size):
+            self.text += '{} | {} | {} \n'.format(
+                target['video_path'][img_id],
+                target['target'][img_id].item(),
                 np.array2string(self.metric.predictions[-1][img_id].numpy(),
                                 separator=' ',
                                 precision=4,
@@ -199,6 +265,14 @@ class VideoMAP(VideoWrapper):
 
 
 class VideoAccuracy(VideoWrapper):
+    def update_text(self, target):
+        self.text += '{:^5} | {:^20} \n'.format(
+            target['target'][0],
+            np.array2string(self.metric.labels.numpy(),
+                            separator=' ')[1:-1])
+
+
+class VideoPerClassAccuracy(VideoWrapper):
     def update_text(self, target):
         self.text += '{:^5} | {:^20} \n'.format(
             target['target'][0],
