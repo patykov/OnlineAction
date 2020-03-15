@@ -3,10 +3,10 @@ import logging
 import os
 import time
 
-import horovod.torch as hvd
 import torch.nn.parallel
 from tqdm import tqdm
 
+import horovod.torch as hvd
 import metrics.metrics as m
 from datasets.get import get_dataloader, get_distributed_sampler
 from models.get import get_model
@@ -76,8 +76,8 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, non_local
 
                 video_stream = get_dataloader(
                     (dataset, 'stream'), video_path=video_path, label=label,
-                    sample_frames=sample_frames, batch_size=None, num_classes=num_classes,
-                    mode=mode, distributed=False, num_workers=0)
+                    sample_frames=sample_frames, num_classes=num_classes, mode=mode,
+                    batch_size=None, distributed=False, num_workers=0)
                 for j, (chunk_data, chunk_target) in enumerate(video_stream):
                     chunk_data = chunk_data.to('cuda')
                     output = model(chunk_data)

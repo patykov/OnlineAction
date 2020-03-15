@@ -3,10 +3,9 @@ import logging
 import os
 import time
 
-import horovod.torch as hvd
 import torch.nn.parallel
-# from torch.nn import AvgPool1d, MaxPool1d
 
+import horovod.torch as hvd
 import metrics.metrics as m
 from datasets.get import get_dataloader
 from models.get import get_model
@@ -44,30 +43,6 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, non_local
     model.eval()
     model_time = time.time()
 
-    # if data_loader.dataset.multi_label:
-
-    #     def video_output(outputs):
-    #         max_pool = MaxPool1d(data_loader.dataset.test_clips)
-    #         avg_pool = AvgPool1d(3)
-
-    #         outputs = torch.sigmoid(outputs)
-    #         data = outputs.view(1, -1, num_classes).contiguous()
-    #         data = data.permute(0, 2, 1).contiguous()
-
-    #         data = max_pool(data)
-    #         if '3crops' in mode:
-    #             # 3crops transform takes 3 random crops of each clip
-    #             data = avg_pool(data)
-    #         video_data = data.view(-1, num_classes).contiguous()
-
-    #         return video_data
-
-    # else:
-    #     softmax = torch.nn.Softmax(dim=1)
-
-    #     def video_output(outputs):
-    #         return softmax(outputs).mean(0)
-
     # Horovod: broadcast parameters.
     hvd.broadcast_parameters(model.state_dict(), root_rank=0)
 
@@ -102,6 +77,9 @@ def eval(map_file, root_data_path, pretrained_weights, arch, backbone, non_local
                              data_time=data_time, metric=video_metric.metric))
 
                 RESULTS.debug(video_metric.to_text())
+
+            # Trying to empty gpu cache
+            torch.cuda.empty_cache()
 
     RESULTS.debug(video_metric.to_text())
     LOG.info('\n{metric.name}: {metric}'.format(metric=video_metric.metric))

@@ -6,7 +6,7 @@ from datasets.video_record import VideoRecord
 
 class VideoStream(VideoDataset):
 
-    def __init__(self, video_path, label, num_classes=157, sample_frames=32, transform=None,
+    def __init__(self, video_path, label, sample_frames, num_classes=157, transform=None,
                  mode='stream_centerCrop', clip_length=3):
         self.record = VideoRecord(video_path, label)
         self.sample_frames = sample_frames

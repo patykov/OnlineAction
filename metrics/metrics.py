@@ -1,7 +1,8 @@
-import horovod.torch as hvd
 import numpy as np
 import torch
 from sklearn.metrics import confusion_matrix
+
+import horovod.torch as hvd
 
 from .charades_classify import charades_map
 
@@ -72,24 +73,20 @@ class TopK(Metric):
     def reset(self):
         super().reset()
         self.labels = None
-        self.total = 0
+        self.total = 0.0
         self.topk_hit = [0 for i in self.k]
 
     def _add(self, output, target, synchronize=True):
-        print(output.shape, target.shape)
         if output.ndim > 2:
             output = self.softmax2d(output)
             output = output.mean(2).mean(2)
         else:
             output = output.softmax(dim=1)
-        print(output.shape, target.shape)
 
         if self.video:
             output = output.mean(0)
 
         _, topk_labels = torch.topk(output, self.maxk)
-
-        print(target.shape, torch.stack([target.cpu()], dim=1).shape)
 
         if synchronize:
             self.targets = hvd.allgather(
@@ -101,13 +98,15 @@ class TopK(Metric):
             self.labels = topk_labels.cpu()
             self.predictions = output.cpu()
 
+        if self.labels.ndim < 2:
+            self.labels = self.labels.unsqueeze(0)
+
         self.total += self.targets.shape[0]
-        print(self.labels.shape)
         for i, k in enumerate(self.k):
             self.topk_hit[i] += torch.sum(self.targets == self.labels[:, :k])
 
     def _get_value(self):
-        return self.topk_hit / self.total.astype(float)
+        return [hits / self.total for hits in self.topk_hit]
 
     def __repr__(self):
         return '/'.join(['{:.02%}'.format(v) for v in [*self.value]])
