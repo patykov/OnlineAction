@@ -108,7 +108,7 @@ class VideoDataset(data.Dataset):
         for p in sample_end_pos:
             offsets.extend(
                 np.linspace(max(p - expanded_sample_length, 0),
-                            p,
+                            min(p, record.num_frames - 1),
                             self.sample_frames,
                             dtype=int))
 

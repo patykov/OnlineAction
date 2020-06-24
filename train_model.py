@@ -70,7 +70,7 @@ def run_epoch(model, dataloader, epoch, num_epochs, criterion, metric, is_train,
                 # Compute loss and metrics
                 loss = criterion(outputs, targets)
                 running_loss.update(loss.item(), batch_samples)
-                metric.add(outputs, targets)
+                metric.add(outputs.cpu(), targets)
 
                 if running_loss.count - offset >= t.total // 10:  # Update progressbar every 10%
                     t.set_postfix(

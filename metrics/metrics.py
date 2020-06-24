@@ -165,23 +165,23 @@ class mAP(Metric):
         self.video = video
 
     def _add(self, output, target, synchronize=True):
-        output = torch.sigmoid(output)
+        output = torch.sigmoid(output).cpu()
 
-        if output.ndim > 2:
+        if output.numpy().ndim > 2:  # Tensor.ndim is missing
             output = output.mean(2).mean(2)
 
         if self.video:
-            output = output.max(0)
+            output, _ = output.max(0)
 
         if synchronize:
             self.targets.append(hvd.allgather(target.cpu(), name=self.name + '_target'))
-            self.predictions.append(hvd.allgather(output.cpu(), name=self.name + '_pred'))
+            self.predictions.append(hvd.allgather(output, name=self.name + '_pred'))
         else:
             self.targets.append(target.cpu())
-            self.predictions.append(output.cpu())
+            self.predictions.append(output)
 
     def _get_value(self):
-        mAP, _, _, _, _, _ = charades_map(np.vstack(self.predictions), np.vstack(self.targets))
+        mAP, _, _, _, _, _, _ = charades_map(np.vstack(self.predictions), np.vstack(self.targets))
         return mAP
 
     def __repr__(self):

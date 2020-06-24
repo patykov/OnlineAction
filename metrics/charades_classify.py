@@ -1,10 +1,7 @@
 import csv
-import os
+import re
 
 import numpy as np
-from tqdm import tqdm
-
-from datasets.charades_stream import CharadesStream
 
 
 def charades_v1_classify(cls_file, gt_path, per_frame=False):
@@ -44,7 +41,7 @@ def charades_v1_classify(cls_file, gt_path, per_frame=False):
     elif n_test < n:
         raise RuntimeError('There are {} extra items!'.format(n-n_test))
 
-    mAP, wAP, ap, _, _, cAP = charades_map(np.array(test_scores), np.array(gt_classes))
+    mAP, wAP, ap, _, _, cAP, _, _ = charades_map(np.array(test_scores), np.array(gt_classes))
 
     return mAP, wAP, ap, cAP
 
@@ -57,8 +54,10 @@ def map_func(submission_array, gt_array):
     a_recall = np.zeros(submission_array.shape)
     n_samples = submission_array.shape[0]
     n_classes = submission_array.shape[1]
+    new_preds = submission_array.copy()
     for oc_i in range(n_classes):
         sorted_idxs = np.argsort(-submission_array[:, oc_i])
+        new_preds[:, oc_i] = new_preds[:, oc_i][sorted_idxs]
         sorted_gt = gt_array[:, oc_i][sorted_idxs]
         tp = sorted_gt == 1
         fp = np.invert(tp)
@@ -90,7 +89,7 @@ def map_func(submission_array, gt_array):
     m_ap = np.nanmean(m_aps)
     c_ap = np.nanmean(c_aps)
     w_ap = np.nansum(m_aps * gt_array.sum(axis=0) / gt_array.sum().astype(float))
-    return m_ap, w_ap, m_aps, a_prec, a_recall, c_ap
+    return m_ap, w_ap, m_aps, a_prec, a_recall, c_ap, c_aps, new_preds
 
 
 def charades_map(submission_array, gt_array):
@@ -107,7 +106,7 @@ def charades_map(submission_array, gt_array):
 
 
 def get_thresholds(test_scores, gt_classes):
-    _, _, ap, prec, _ = charades_map(test_scores, gt_classes)
+    _, _, ap, prec, _, _, _, _ = charades_map(test_scores, gt_classes)
 
     n_classes = test_scores.shape[1]
     thresholds = np.zeros(n_classes)
@@ -122,6 +121,31 @@ def read_file(file_path):
         text = sorted(file.readlines())
 
     split_text = [t.strip().split(' ') for t in text]
+    v_ids = [st[0] for st in split_text]
+    v_scores = [list(map(float, st[1:])) for st in split_text]
+
+    return v_ids, v_scores
+
+
+def read_causal_file(file_path):
+    text = ''
+    with open(file_path, 'r', encoding="ISO-8859-1") as file:
+        for line in file:
+            text += ' ' + line.strip()
+
+    lines_text = [t for t in text.split(' ') if t != '']
+
+    # Getting number of 'items' per line
+    num_per_line = 1  # counting the first label
+    for value in lines_text[1:]:
+        if '_' in value:
+            # Break when next label is found
+            break
+        num_per_line += 1
+
+    split_text = [
+        lines_text[i-num_per_line:i] for i in range(num_per_line, len(lines_text), num_per_line)]
+
     v_ids = [st[0] for st in split_text]
     v_scores = [list(map(float, st[1:])) for st in split_text]
 
@@ -146,47 +170,9 @@ def load_charades(gt_path):
     return gt_ids, gt_classes
 
 
-def load_causal_charades(gt_path, data_path, clip_length):
-    gt_ids = []
-    gt_classes = []
-    with open(gt_path) as f:
-        reader = list(csv.DictReader(f))
-
-    count = 0
-    offset = 0
-    total = len(reader)
-    for ir, row in enumerate(reader):
-        with tqdm(desc='Video {}/{} ({:.02%})'.format(ir, total, ir/total), total=total,
-                  leave=False, maxinterval=3600) as t:
-            vid = row['id']
-            actions = row['actions']
-            if actions == '':
-                actions = []
-            else:
-                actions = [a.split(' ') for a in actions.split(';')]
-                actions = [{
-                    'class': x,
-                    'start': float(y),
-                    'end': float(z)
-                } for x, y, z in actions]
-            video_stream = CharadesStream(os.path.join(data_path, vid+'.mp4'), actions,
-                                          clip_length=clip_length)
-            first_frame = video_stream.first_frame
-            frame_target = video_stream.target['target']
-            for f_id, frame_t in enumerate(frame_target):
-                gt_ids.append('{}_{:06d}'.format(vid, first_frame + f_id))
-                gt_classes.append(frame_t.numpy())
-
-            if (count - offset) >= total // 20:  # Update progressbar every 5%
-                t.update(count - offset)
-                offset = count
-
-    return gt_ids, gt_classes
-
-
 def save(log_file, gt_file, output_file, per_frame=False, calibrated=False,
          batch_time=None, data_time=None):
-    mAP, wAP, ap = charades_v1_classify(log_file, gt_file, per_frame, calibrated)
+    mAP, wAP, ap, _ = charades_v1_classify(log_file, gt_file, per_frame)
 
     with open(output_file, 'w') as file:
         file.write('### {}MAP ### \n'.format('Calibrated ' if calibrated else ''))
@@ -204,3 +190,23 @@ def save(log_file, gt_file, output_file, per_frame=False, calibrated=False,
         file.write('\n\n{:5} | {:^5}\n'.format('class', '{}AP'.format('c' if calibrated else '')))
         for i, ap in enumerate(ap):
             file.write('{:5} | {:.02%}\n'.format(i, ap))
+
+
+def get_gt_per_verb(gt_array, verb_classes_file):
+    class_to_verb = {}
+    with open(verb_classes_file, 'r') as file:
+        for line in file:
+            class_match = re.match(r'(\d*) (.*) (\d*)', line)
+            if class_match:
+                old_class_id, new_class_id, _ = class_match.groups()
+            class_to_verb[int(old_class_id)] = int(new_class_id)
+
+    num_classes = len(np.unique(list(class_to_verb.values())))
+    new_gt_array = np.zeros((gt_array.shape[0], num_classes))
+    print(new_gt_array.shape)
+    for frame_id, frame_gt in enumerate(gt_array):
+        old_classes = np.where(frame_gt)[0]
+        new_classes = [class_to_verb[c_id] for c_id in old_classes]
+        new_gt_array[frame_id, new_classes] = 1
+
+    return new_gt_array
